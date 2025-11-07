@@ -21,7 +21,7 @@ questions = [
     "Salut et bienvenue ! 😊 Quel est ton pseudo AS ?",
     "Ton secteur de jeux ? (numéro de département) 🌍",
     "Qu'est-ce qui t'a motivé à rejoindre le groupement ? 🤔",
-    "Joues-tu à d'autres jeux? 🎮"
+    "Joues-tu à d'autres jeux? (si oui les quelles) 🎮"
 ]
 
 @bot.event
