@@ -19,7 +19,7 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 questions = [
     "Salut et bienvenue ! 😊 Quel est ton pseudo AS ?",
-    "Ton secteur de jeux ? 🌍",
+    "Ton secteur de jeux ? (numéro de département) 🌍",
     "Qu'est-ce qui t'a motivé à rejoindre le groupement ? 🤔",
     "Joues-tu à d'autres jeux? 🎮"
 ]
