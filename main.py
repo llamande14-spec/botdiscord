@@ -59,4 +59,39 @@ async def on_ready():
         print("Le bot est prêt à accueillir de nouveaux membres !")
 
 keep_alive()
+
+@bot.command()
+@commands.has_permissions(administrator=True) # Seuls les admins peuvent l'utiliser
+async def msgmp(ctx, member: discord.Member):
+    """Lance manuellement le questionnaire de bienvenue pour un membre spécifique."""
+    await ctx.send(f"⏳ Tentative d'envoi du questionnaire à {member.mention}...")
+    
+    try:
+        # On reproduit la logique du on_member_join
+        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉\n"
+                          "J'ai quelques petites questions pour toi !")
+        
+        responses = []
+        for q in questions:
+            await member.send(q)
+            
+            def check(m):
+                return m.author == member and isinstance(m.channel, discord.DMChannel)
+            
+            msg = await bot.wait_for("message", check=check, timeout=300.0) # Timeout de 5min pour éviter de bloquer
+            responses.append(msg.content)
+        
+        salon = bot.get_channel(ID_SALON_REPONSES)
+        if salon and isinstance(salon, discord.TextChannel):
+            formatted = "\n".join([f"**{questions[i]}**\n➡️ {responses[i]}" for i in range(len(questions))])
+            await salon.send(f"🆕 **Réponses manuelles de : {member.mention} ({member.name})**\n\n{formatted}")
+        
+        await member.send("Merci pour tes réponses ! 💬 Elles ont été envoyées à l'équipe du serveur 👌")
+        await ctx.send(f"✅ Questionnaire terminé avec succès pour {member.name}.")
+
+    except discord.Forbidden:
+        await ctx.send(f"❌ Impossible d'envoyer un MP à {member.mention}. Ses messages privés sont peut-être fermés.")
+    except Exception as e:
+        await ctx.send(f"⚠️ Une erreur est survenue : {e}")
+        
 bot.run(TOKEN)
