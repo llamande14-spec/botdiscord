@@ -57,9 +57,7 @@ async def on_ready():
         print(f"ID: {bot.user.id}")
         print(f"Serveurs: {len(bot.guilds)}")
         print("Le bot est prêt à accueillir de nouveaux membres !")
-
-keep_alive()
-
+        
 @bot.command()
 @commands.has_permissions(administrator=True) # Seuls les admins peuvent l'utiliser
 async def msgmp(ctx, member: discord.Member):
@@ -93,5 +91,6 @@ async def msgmp(ctx, member: discord.Member):
         await ctx.send(f"❌ Impossible d'envoyer un MP à {member.mention}. Ses messages privés sont peut-être fermés.")
     except Exception as e:
         await ctx.send(f"⚠️ Une erreur est survenue : {e}")
-        
+
+keep_alive()     
 bot.run(TOKEN)
