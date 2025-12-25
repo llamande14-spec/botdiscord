@@ -1,4 +1,2 @@
-discord.py==2.6.4
-flask==3.1.2
-discord.py
-flask
+discord.py==2.3.2
+flask==3.0.0
