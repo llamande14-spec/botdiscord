@@ -2,6 +2,7 @@ import discord
 from discord.ext import commands
 import os
 import sys
+import asyncio
 from keep_alive import keep_alive
 
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -70,14 +71,19 @@ async def msgmp(ctx, member: discord.Member):
                           "J'ai quelques petites questions pour toi !")
         
         responses = []
-        for q in questions:
+      for q in questions:
             await member.send(q)
             
             def check(m):
                 return m.author == member and isinstance(m.channel, discord.DMChannel)
             
-            msg = await bot.wait_for("message", check=check, timeout=300.0) # Timeout de 5min pour éviter de bloquer
-            responses.append(msg.content)
+            try:
+                # Ajout d'un timeout de 10 minutes pour laisser le temps de répondre
+                msg = await bot.wait_for("message", check=check, timeout=600.0) 
+                responses.append(msg.content)
+            except asyncio.TimeoutError:
+                await member.send("⏱️ Tu as mis trop de temps à répondre. Le questionnaire est annulé.")
+                return # Arrête proprement la fonction
         
         salon = bot.get_channel(ID_SALON_REPONSES)
         if salon and isinstance(salon, discord.TextChannel):
