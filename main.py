@@ -106,7 +106,7 @@ ID_SALON_LOGS_STATUT = 1439697621156495543
 @bot.event
 async def on_voice_state_update(member, before, after):
     salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-    if not salon_logs:
+    if not salon_logs or member.bot: # On ignore les autres bots
         return
 
     # 1. CONNEXION
@@ -131,22 +131,22 @@ async def on_voice_state_update(member, before, after):
         embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
         await salon_logs.send(embed=embed)
 
-    # 3. CHANGEMENT DE STATUT (Même si c'est le même salon)
-    if before.channel is not None and after.channel is not None:
-        if before.voice_status != after.voice_status:
-            # On ignore si le changement est juste un micro coupé/caméra
-            nouveau_statut = after.voice_status
-            
-            if nouveau_statut:
-                embed = discord.Embed(
-                    title=f"Modification Statut - {member.display_name}",
-                    description=f"{member.mention} a modifié le statut du salon 🔊 **{after.channel.name}**.",
-                    color=discord.Color.from_rgb(231, 76, 60)
-                )
-                embed.add_field(name="Nouveau Statut", value=f"```\n{nouveau_statut}\n```", inline=False)
-                embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-                embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
-                await salon_logs.send(embed=embed)
+    # 3. CHANGEMENT DE STATUT DU SALON (Texte sous le nom)
+    # On compare le statut du salon avant et après
+    if after.channel is not None:
+        status_avant = getattr(before.channel, "status", None) if before.channel else None
+        status_apres = getattr(after.channel, "status", None)
+        
+        if status_avant != status_apres and status_apres is not None:
+            embed = discord.Embed(
+                title=f"Modification Statut - {member.display_name}",
+                description=f"{member.mention} a modifié le statut du salon 🔊 **{after.channel.name}**.",
+                color=discord.Color.from_rgb(231, 76, 60)
+            )
+            embed.add_field(name="Nouveau Statut", value=f"```\n{status_apres}\n```", inline=False)
+            embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+            embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+            await salon_logs.send(embed=embed)
 
 keep_alive()     
 bot.run(TOKEN)
