@@ -123,6 +123,31 @@ async def voir_base(ctx):
     await ctx.send(text)
 
 @bot.command()
+@commands.has_permissions(administrator=True)
+async def retirer_secteur(ctx, membre: discord.Member, *, secteur: str):
+    db = load_db()
+    s = secteur.strip().capitalize() # On nettoie le nom du secteur
+    
+    if s in db and membre.id in db[s]:
+        db[s].remove(membre.id)
+        
+        # Si le secteur est vide après suppression, on peut le supprimer de la base
+        if not db[s]:
+            del db[s]
+            
+        save_db(db)
+        await ctx.send(f"🗑️ **{membre.display_name}** a été retiré du secteur **{s}**.")
+    else:
+        await ctx.send(f"⚠️ Impossible de trouver **{membre.display_name}** dans le secteur **{s}**.")
+
+@retirer_secteur.error
+async def retirer_secteur_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Tu n'as pas la permission (Administrateur) pour retirer quelqu'un.")
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("❌ Membre introuvable. Mentionne bien la personne (ex: !retirer_secteur @Pseudo Paris).")
+
+@bot.command()
 @commands.has_permissions(administrator=False)
 async def ajouter_secteur(ctx, membre: discord.Member, *, secteur: str):
     db = load_db()
