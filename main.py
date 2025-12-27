@@ -104,37 +104,46 @@ ID_SALON_LOGS_STATUT = 1439697621156495543
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    # On vérifie si l'utilisateur est toujours dans le même salon mais que le statut a changé
-    if before.channel == after.channel and before.channel is not None:
+    salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
+    if not salon_logs:
+        return
+
+    # Cas 1 : L'utilisateur REJOINT un salon
+    if before.channel is None and after.channel is not None:
+        embed = discord.Embed(
+            title=f"Connexion - {member.display_name}",
+            description=f"{member.mention} vient de rejoindre le salon 🔊 **{after.channel.name}**.",
+            color=discord.Color.green()
+        )
+        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+        embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+        await salon_logs.send(embed=embed)
+
+    # Cas 2 : L'utilisateur QUITTE un salon
+    elif before.channel is not None and after.channel is None:
+        embed = discord.Embed(
+            title=f"Déconnexion - {member.display_name}",
+            description=f"{member.mention} vient de quitter le salon 🔊 **{before.channel.name}**.",
+            color=discord.Color.red()
+        )
+        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+        embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+        await salon_logs.send(embed=embed)
+
+    # Cas 3 : L'utilisateur MODIFIE son statut vocal
+    elif before.channel == after.channel and before.channel is not None:
         if before.voice_status != after.voice_status:
-            
-            salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-            if not salon_logs:
-                return
-
-            # Détermination du texte du statut
             nouveau_statut = after.voice_status if after.voice_status else "Statut supprimé"
-
-            # Création de l'Embed (style de tes captures)
+            
             embed = discord.Embed(
-                title=f"Connexion — {member.display_name}",
-                description=f"{member.mention} vient de modifier le statut du salon 🔊 **{after.channel.name}**.",
-                color=discord.Color.from_rgb(231, 76, 60) # Couleur orange/rouge
+                title=f"Modification Statut - {member.display_name}",
+                description=f"{member.mention} a modifié le statut du salon 🔊 **{after.channel.name}**.",
+                color=discord.Color.from_rgb(231, 76, 60)
             )
-            
-            # Bloc de code pour le nouveau statut
-            embed.add_field(
-                name="Nouveau Statut", 
-                value=f"```\n{nouveau_statut}\n```", 
-                inline=False
-            )
-            
-            # Infos auteur et footer
+            embed.add_field(name="Nouveau Statut", value=f"```\n{nouveau_statut}\n```", inline=False)
             embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-            embed.set_footer(text=f"ID: {member.id} • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
-
+            embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
             await salon_logs.send(embed=embed)
-
 
 keep_alive()     
 bot.run(TOKEN)
