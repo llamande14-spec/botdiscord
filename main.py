@@ -15,8 +15,6 @@ ID_SALON_REPONSES = 1433793778111484035
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-intents.voice_states = True
-intents.presences = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 questions = [
@@ -99,55 +97,6 @@ async def msgmp(ctx, member: discord.Member):
     except Exception as e:
         await ctx.send(f"⚠️ Une erreur est survenue : {e}")
 
-# --- CONFIGURATION LOGS ---
-# Remplace par l'ID du salon où tu veux recevoir les logs de statut
-ID_SALON_LOGS_STATUT = 1439697621156495543 
 
-@bot.event
-async def on_voice_state_update(member, before, after):
-    if member.bot: return
-    salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-    if not salon_logs: return
-
-    # LOGS DE CONNEXION / DÉCONNEXION
-    if before.channel != after.channel:
-        if after.channel:
-            embed = discord.Embed(title=f"Connexion - {member.display_name}", 
-                description=f"{member.mention} a rejoint 🔊 **{after.channel.name}**.", color=discord.Color.green())
-        else:
-            embed = discord.Embed(title=f"Déconnexion - {member.display_name}", 
-                description=f"{member.mention} a quitté 🔊 **{before.channel.name}**.", color=discord.Color.red())
-        
-        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-        embed.set_footer(text=f"LES GAULOIS • {discord.utils.utcnow().strftime('%H:%M')}")
-        await salon_logs.send(embed=embed)
-
-# --- NOUVEL ÉVÉNEMENT POUR LE STATUT ---
-@bot.event
-async def on_guild_channel_update(before, after):
-    # On vérifie si c'est un salon vocal et si le statut a changé
-    if isinstance(after, discord.VoiceChannel):
-        if before.status != after.status:
-            salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-            if not salon_logs: return
-
-            # On cherche qui a fait la modification dans l'Audit Log
-            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
-                user = entry.user
-                break
-            else:
-                user = bot.user # Si on ne trouve pas
-
-            nouveau_statut = after.status if after.status else "Statut supprimé"
-
-            embed = discord.Embed(
-                title=f"Modification Statut - {user.display_name}",
-                description=f"Le statut du salon 🔊 **{after.name}** a été modifié.",
-                color=discord.Color.from_rgb(231, 76, 60)
-            )
-            embed.add_field(name="Nouveau Statut", value=f"```\n{nouveau_statut}\n```", inline=False)
-            embed.set_author(name=user.name, icon_url=user.display_avatar.url)
-            embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
-            await salon_logs.send(embed=embed)
 keep_alive()     
 bot.run(TOKEN)
