@@ -15,6 +15,7 @@ ID_SALON_REPONSES = 1433793778111484035
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
+intents.voice_states = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 questions = [
