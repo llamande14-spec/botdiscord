@@ -105,47 +105,36 @@ ID_SALON_LOGS_STATUT = 1439697621156495543
 
 @bot.event
 async def on_voice_state_update(member, before, after):
+    if member.bot: return
     salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-    if not salon_logs or member.bot: # On ignore les autres bots
-        return
+    if not salon_logs: return
 
-    # 1. CONNEXION
-    if before.channel is None and after.channel is not None:
-        embed = discord.Embed(
-            title=f"Connexion - {member.display_name}",
-            description=f"{member.mention} vient de rejoindre le salon 🔊 **{after.channel.name}**.",
-            color=discord.Color.green()
-        )
-        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-        embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
-        await salon_logs.send(embed=embed)
-
-    # 2. DÉCONNEXION
-    elif before.channel is not None and after.channel is None:
-        embed = discord.Embed(
-            title=f"Déconnexion - {member.display_name}",
-            description=f"{member.mention} vient de quitter le salon 🔊 **{before.channel.name}**.",
-            color=discord.Color.red()
-        )
-        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-        embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
-        await salon_logs.send(embed=embed)
-
-    # 3. CHANGEMENT DE STATUT DU SALON (Texte sous le nom)
-    # On compare le statut du salon avant et après
-    if after.channel is not None:
-        status_avant = getattr(before.channel, "status", None) if before.channel else None
-        status_apres = getattr(after.channel, "status", None)
+    # --- LOGIQUE CONNEXION / DÉCONNEXION ---
+    if before.channel != after.channel:
+        if after.channel: # Connexion
+            embed = discord.Embed(title=f"Connexion - {member.display_name}", 
+                description=f"{member.mention} a rejoint 🔊 **{after.channel.name}**.", color=discord.Color.green())
+        else: # Déconnexion
+            embed = discord.Embed(title=f"Déconnexion - {member.display_name}", 
+                description=f"{member.mention} a quitté 🔊 **{before.channel.name}**.", color=discord.Color.red())
         
-        if status_avant != status_apres and status_apres is not None:
-            embed = discord.Embed(
-                title=f"Modification Statut - {member.display_name}",
-                description=f"{member.mention} a modifié le statut du salon 🔊 **{after.channel.name}**.",
-                color=discord.Color.from_rgb(231, 76, 60)
-            )
-            embed.add_field(name="Nouveau Statut", value=f"```\n{status_apres}\n```", inline=False)
+        embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+        embed.set_footer(text=f"LES GAULOIS • {discord.utils.utcnow().strftime('%H:%M')}")
+        await salon_logs.send(embed=embed)
+
+    # --- LOGIQUE SPÉCIFIQUE AU STATUT (VOICE STATUS) ---
+    # On vérifie si le statut a changé (nécessite que le bot puisse voir le salon)
+    if after.channel:
+        # On utilise getattr car certaines versions de discord.py n'ont pas l'attribut .status
+        old_stat = getattr(before.channel, "status", None) if before.channel else None
+        new_stat = getattr(after.channel, "status", None)
+
+        if old_stat != new_stat and new_stat is not None:
+            embed = discord.Embed(title=f"Modification Statut - {member.display_name}",
+                description=f"{member.mention} a changé le statut de 🔊 **{after.channel.name}**.", color=15105570)
+            embed.add_field(name="Nouveau Statut", value=f"```\n{new_stat}\n```")
             embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-            embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+            embed.set_footer(text=f"LES GAULOIS • {discord.utils.utcnow().strftime('%H:%M')}")
             await salon_logs.send(embed=embed)
 
 keep_alive()     
