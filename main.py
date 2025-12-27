@@ -105,48 +105,49 @@ ID_SALON_LOGS_STATUT = 1439697621156495543
 
 @bot.event
 async def on_voice_state_update(member, before, after):
-    # On ignore les bots pour éviter les boucles
-    if member.bot: 
-        return
-        
+    if member.bot: return
     salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
-    if not salon_logs:
-        return
+    if not salon_logs: return
 
-    # 1. LOGIQUE CONNEXION / DÉCONNEXION
+    # LOGS DE CONNEXION / DÉCONNEXION
     if before.channel != after.channel:
-        if after.channel: # L'utilisateur rejoint
-            embed = discord.Embed(
-                title=f"Connexion - {member.display_name}",
-                description=f"{member.mention} vient de rejoindre le salon 🔊 **{after.channel.name}**.",
-                color=discord.Color.green()
-            )
-        else: # L'utilisateur quitte
-            embed = discord.Embed(
-                title=f"Déconnexion - {member.display_name}",
-                description=f"{member.mention} vient de quitter le salon 🔊 **{before.channel.name}**.",
-                color=discord.Color.red()
-            )
+        if after.channel:
+            embed = discord.Embed(title=f"Connexion - {member.display_name}", 
+                description=f"{member.mention} a rejoint 🔊 **{after.channel.name}**.", color=discord.Color.green())
+        else:
+            embed = discord.Embed(title=f"Déconnexion - {member.display_name}", 
+                description=f"{member.mention} a quitté 🔊 **{before.channel.name}**.", color=discord.Color.red())
+        
         embed.set_author(name=member.name, icon_url=member.display_avatar.url)
-        embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+        embed.set_footer(text=f"LES GAULOIS • {discord.utils.utcnow().strftime('%H:%M')}")
         await salon_logs.send(embed=embed)
 
-    # 2. LOGIQUE DU STATUT DU SALON (Modification du texte)
-    # On vérifie si l'utilisateur est dans un salon et si le statut du salon a changé
-    if after.channel:
-        statut_avant = before.channel.status if before.channel else None
-        statut_apres = after.channel.status
+# --- NOUVEL ÉVÉNEMENT POUR LE STATUT ---
+@bot.event
+async def on_guild_channel_update(before, after):
+    # On vérifie si c'est un salon vocal et si le statut a changé
+    if isinstance(after, discord.VoiceChannel):
+        if before.status != after.status:
+            salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
+            if not salon_logs: return
 
-        if statut_avant != statut_apres and statut_apres is not None:
+            # On cherche qui a fait la modification dans l'Audit Log
+            async for entry in after.guild.audit_logs(limit=1, action=discord.AuditLogAction.channel_update):
+                user = entry.user
+                break
+            else:
+                user = bot.user # Si on ne trouve pas
+
+            nouveau_statut = after.status if after.status else "Statut supprimé"
+
             embed = discord.Embed(
-                title=f"Modification Statut - {member.display_name}",
-                description=f"{member.mention} a modifié le statut du salon 🔊 **{after.channel.name}**.",
+                title=f"Modification Statut - {user.display_name}",
+                description=f"Le statut du salon 🔊 **{after.name}** a été modifié.",
                 color=discord.Color.from_rgb(231, 76, 60)
             )
-            embed.add_field(name="Nouveau Statut", value=f"```\n{statut_apres}\n```", inline=False)
-            embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+            embed.add_field(name="Nouveau Statut", value=f"```\n{nouveau_statut}\n```", inline=False)
+            embed.set_author(name=user.name, icon_url=user.display_avatar.url)
             embed.set_footer(text=f"LES GAULOIS • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
             await salon_logs.send(embed=embed)
-
 keep_alive()     
 bot.run(TOKEN)
