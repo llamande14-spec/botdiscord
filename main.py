@@ -123,7 +123,7 @@ async def voir_base(ctx):
     await ctx.send(text)
 
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=False)
 async def ajouter_secteur(ctx, membre: discord.Member, *, secteur: str):
     db = load_db()
     s = secteur.strip().capitalize()
