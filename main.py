@@ -97,5 +97,43 @@ async def msgmp(ctx, member: discord.Member):
     except Exception as e:
         await ctx.send(f"⚠️ Une erreur est survenue : {e}")
 
+# --- CONFIGURATION LOGS ---
+# Remplace par l'ID du salon où tu veux recevoir les logs de statut
+ID_SALON_LOGS_STATUT = 1439697621156495543 
+
+@bot.event
+async def on_voice_state_update(member, before, after):
+    # On vérifie si l'utilisateur est toujours dans le même salon mais que le statut a changé
+    if before.channel == after.channel and before.channel is not None:
+        if before.voice_status != after.voice_status:
+            
+            salon_logs = bot.get_channel(ID_SALON_LOGS_STATUT)
+            if not salon_logs:
+                return
+
+            # Détermination du texte du statut
+            nouveau_statut = after.voice_status if after.voice_status else "Statut supprimé"
+
+            # Création de l'Embed (style de tes captures)
+            embed = discord.Embed(
+                title=f"Connexion — {member.display_name}",
+                description=f"{member.mention} vient de modifier le statut du salon 🔊 **{after.channel.name}**.",
+                color=discord.Color.from_rgb(231, 76, 60) # Couleur orange/rouge
+            )
+            
+            # Bloc de code pour le nouveau statut
+            embed.add_field(
+                name="Nouveau Statut", 
+                value=f"```\n{nouveau_statut}\n```", 
+                inline=False
+            )
+            
+            # Infos auteur et footer
+            embed.set_author(name=member.name, icon_url=member.display_avatar.url)
+            embed.set_footer(text=f"ID: {member.id} • Aujourd'hui à {discord.utils.utcnow().strftime('%H:%M')}")
+
+            await salon_logs.send(embed=embed)
+
+
 keep_alive()     
 bot.run(TOKEN)
