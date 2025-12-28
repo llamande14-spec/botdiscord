@@ -32,7 +32,20 @@ def save_db(file, data):
     with open(file, "w", encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
-# --- STATUT MODERNE & DYNAMIQUE ---
+# --- NOTIFICATION MP AUTOMATIQUE ---
+async def notifier_sanction(member, type_s, raison):
+    """Envoie un MP détaillé au membre lors d'une sanction"""
+    embed = discord.Embed(title="⚠️ Notification de Sanction", color=discord.Color.red())
+    embed.add_field(name="Serveur", value=member.guild.name, inline=True)
+    embed.add_field(name="Type de Sanction", value=type_s, inline=True)
+    embed.add_field(name="Motif / Raison", value=raison, inline=False)
+    embed.set_footer(text=f"Date : {datetime.datetime.now().strftime('%d/%m/%Y %H:%M')}")
+    try:
+        await member.send(embed=embed)
+    except:
+        pass # Si les MP sont fermés, on ignore l'erreur
+
+# --- STATUT DYNAMIQUE ---
 @tasks.loop(seconds=15)
 async def dynamic_status():
     await bot.wait_until_ready()
@@ -47,7 +60,6 @@ async def dynamic_status():
         discord.Activity(type=discord.ActivityType.listening, name="🛡️ Sécurité Active"),
         discord.Activity(type=discord.ActivityType.playing, name="⚡ !panel | !sanction")
     ]
-    
     await bot.change_presence(status=discord.Status.online, activity=random.choice(status_list))
 
 # --- TÂCHE AUTOMATIQUE (SAUVEGARDE 24H) ---
@@ -56,25 +68,20 @@ async def auto_backup():
     try:
         u = await bot.fetch_user(ID_TON_COMPTE)
         files = [discord.File(f) for f in [DB_FILE, SANCTIONS_FILE] if os.path.exists(f)]
-        if files:
-            await u.send("🔄 **Sauvegarde Automatique (24h)**", files=files)
+        if files: await u.send("🔄 **Sauvegarde Automatique (24h)**", files=files)
     except: pass
 
 # --- QUESTIONNAIRE DE BIENVENUE ---
 async def lancer_questionnaire(member):
     try:
         await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉")
-        questions = ["Quel est ton pseudo AS ?", "Ton secteur (Département, ex: 75) ?", "Ta motivation ? 🤔", "Joues-tu à d'autres jeux ? 🎮"]
+        questions = ["Pseudo AS ?", "Secteur (Département, ex: 75) ?", "Motivation ?", "Autres jeux ?"]
         reponses = []
         for q in questions:
             await member.send(q)
             def check(m): return m.author == member and isinstance(m.channel, discord.DMChannel)
-            try:
-                msg = await bot.wait_for("message", check=check, timeout=600.0)
-                reponses.append(msg.content)
-            except asyncio.TimeoutError:
-                await member.send("Temps écoulé. Recontacte un admin.")
-                return False
+            msg = await bot.wait_for("message", check=check, timeout=600.0)
+            reponses.append(msg.content)
 
         secteur = reponses[1].strip().upper().zfill(2) if reponses[1].strip().isdigit() and len(reponses[1].strip()) == 1 else reponses[1].strip().upper()
         status = "❌ Secteur invalide"
@@ -170,10 +177,17 @@ class SanctionGlobalModal(discord.ui.Modal):
         uid_str = self.user_input.value.replace("<@", "").replace(">", "").replace("!", "") if not self.target_member else str(self.target_member.id)
         member = self.target_member or interaction.guild.get_member(int(uid_str))
         if not member: return await interaction.response.send_message("❌ Membre introuvable.", ephemeral=True)
+        
+        # Enregistrement DB
         db = load_db(SANCTIONS_FILE)
         db.setdefault(str(member.id), [])
         db[str(member.id)].append({"type": self.type_s, "raison": self.raison.value, "date": discord.utils.utcnow().strftime("%d/%m/%Y %H:%M"), "par": self.admin.display_name})
         save_db(SANCTIONS_FILE, db)
+        
+        # Notification MP
+        await notifier_sanction(member, self.type_s, self.raison.value)
+
+        # Action Discord
         try:
             if self.type_s == "KICK": await member.kick(reason=self.raison.value)
             elif self.type_s == "BAN": await member.ban(reason=self.raison.value)
@@ -281,7 +295,7 @@ async def on_member_join(member): await lancer_questionnaire(member)
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def panel(ctx):
-    await ctx.send(embed=discord.Embed(title="🛡️ Menu Admin", description="Sélectionnez une catégorie :", color=0x2b2d31), view=MainMenuView(ctx))
+    await ctx.send(embed=discord.Embed(title="🛡️ Menu Admin", color=0x2b2d31), view=MainMenuView(ctx))
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -292,7 +306,7 @@ async def sanction(ctx, membre: discord.Member):
 @commands.has_permissions(administrator=True)
 async def msgmp(ctx, membre: discord.Member):
     await lancer_questionnaire(membre)
-    await ctx.send(f"✅ Questionnaire envoyé à {membre.display_name}.")
+    await ctx.send(f"✅ Questionnaire envoyé.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
