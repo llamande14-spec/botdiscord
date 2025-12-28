@@ -265,12 +265,14 @@ async def renforts(ctx):
     try:
         q1 = await ctx.send("🚨 N° Inter ?"); msgs.append(q1)
         r1 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r1)
-        q2 = await ctx.send("🚒 Véhicules ?"); msgs.append(q2)
+        q2 = await ctx.send("☎️ Motif de l'appel ?"); msgs.append(q2)
         r2 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r2)
-        q3 = await ctx.send("🏠 Adresse ?"); msgs.append(q3)
+        q3 = await ctx.send("🚒 Véhicules ?"); msgs.append(q3)
         r3 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r3)
-        q4 = await ctx.send("📍 Département (1-98, 2A, 2B) ?"); msgs.append(q4)
+        q4 = await ctx.send("🏠 Adresse ?"); msgs.append(q4)
         r4 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r4)
+        q5 = await ctx.send("📍 Département (1-98, 2A, 2B) ?"); msgs.append(q5)
+        r5 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r5)
         
         s = est_secteur_valide(r4.content)
         if not s:
@@ -281,6 +283,7 @@ async def renforts(ctx):
         mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
         emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
         emb.add_field(name="📍 Secteur", value=s, inline=True)
+        emb.add_field(name="☎️ Motif ", value=s, inline=True)
         emb.add_field(name="🔢 Inter", value=r1.content, inline=True)
         emb.add_field(name="🏠 Adresse", value=r3.content, inline=False)
         emb.add_field(name="🚒 Besoin", value=r2.content, inline=False)
