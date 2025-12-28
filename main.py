@@ -31,6 +31,15 @@ def save_db(file, data):
     with open(file, "w", encoding='utf-8') as f:
         json.dump(data, f, indent=4, ensure_ascii=False)
 
+# --- VALIDATION STRICTE SECTEUR ---
+def est_secteur_valide(s):
+    s = s.upper().strip()
+    if s in ["2A", "2B"]: return s
+    if s.isdigit():
+        val = int(s)
+        if 1 <= val <= 98: return str(val).zfill(2)
+    return None
+
 # --- SÉCURITÉ ADMIN ---
 class SecureView(discord.ui.View):
     def __init__(self, ctx, timeout=60):
@@ -95,8 +104,11 @@ async def lancer_questionnaire(member):
             await member.send(q)
             msg = await bot.wait_for("message", check=lambda m: m.author == member and isinstance(m.channel, discord.DMChannel), timeout=600.0)
             reponses.append(msg.content)
-        sect = reponses[1].strip().upper()
-        secteur = sect.zfill(2) if sect.isdigit() and len(sect) == 1 else sect
+        
+        s_raw = reponses[1]
+        secteur = est_secteur_valide(s_raw)
+        if not secteur: secteur = "INVALIDE" # Pour prévenir l'admin
+
         salon = bot.get_channel(ID_SALON_REPONSES)
         if salon:
             emb = discord.Embed(title=f"🆕 Fiche de {member.name}", color=discord.Color.blue())
@@ -104,7 +116,8 @@ async def lancer_questionnaire(member):
             emb.add_field(name="📍 Secteur proposé", value=secteur, inline=True)
             emb.add_field(name="📝 Motivation", value=reponses[2], inline=False)
             emb.add_field(name="🎮 Autres jeux", value=reponses[3], inline=False)
-            await salon.send(embed=emb, view=ValidationSecteurView(member.id, secteur))
+            view = ValidationSecteurView(member.id, secteur) if secteur != "INVALIDE" else None
+            await salon.send(embed=emb, view=view)
         return True
     except: return False
 
@@ -125,13 +138,15 @@ class SecteurMenuView(SecureView):
     async def add(self, i, b):
         modal = discord.ui.Modal(title="Ajouter au Secteur")
         u_in = discord.ui.TextInput(label="Pseudo/ID"); modal.add_item(u_in)
-        s_in = discord.ui.TextInput(label="Secteur"); modal.add_item(s_in)
+        s_in = discord.ui.TextInput(label="Secteur (1-98, 2A, 2B)"); modal.add_item(s_in)
         async def on_sub(inter):
             m = trouver_membre(inter.guild, u_in.value)
-            if not m: return await inter.response.send_message("❌ Inconnu.", ephemeral=True)
-            db = load_db(DB_FILE); s = s_in.value.upper().zfill(2); db.setdefault(s, [])
+            s = est_secteur_valide(s_in.value)
+            if not m: return await inter.response.send_message("❌ Membre inconnu.", ephemeral=True)
+            if not s: return await inter.response.send_message("❌ Secteur invalide (Utilisez 01-98, 2A ou 2B).", ephemeral=True)
+            db = load_db(DB_FILE); db.setdefault(s, [])
             if m.id not in db[s]: db[s].append(m.id); save_db(DB_FILE, db)
-            await inter.response.send_message("✅ Ajouté.", ephemeral=True)
+            await inter.response.send_message(f"✅ Ajouté au secteur {s}.", ephemeral=True)
         modal.on_submit = on_sub; await i.response.send_modal(modal)
 
     @discord.ui.button(label="Retirer", style=discord.ButtonStyle.danger)
@@ -139,7 +154,7 @@ class SecteurMenuView(SecureView):
         modal = discord.ui.Modal(title="Retirer"); u_in = discord.ui.TextInput(label="Pseudo/ID"); modal.add_item(u_in)
         s_in = discord.ui.TextInput(label="Secteur"); modal.add_item(s_in)
         async def on_sub(inter):
-            m = trouver_membre(inter.guild, u_in.value); db = load_db(DB_FILE); s = s_in.value.upper().zfill(2)
+            m = trouver_membre(inter.guild, u_in.value); db = load_db(DB_FILE); s = s_in.value.upper().strip()
             if s in db and m and m.id in db[s]: db[s].remove(m.id); save_db(DB_FILE, db)
             await inter.response.send_message("✅ Retiré.", ephemeral=True)
         modal.on_submit = on_sub; await i.response.send_modal(modal)
@@ -151,10 +166,8 @@ class SecteurMenuView(SecureView):
             if v:
                 pseudos = [i.guild.get_member(uid).display_name if i.guild.get_member(uid) else f"Inconnu({uid})" for uid in v]
                 lines.append(f"**{k}** : {', '.join(pseudos)}")
-        
         v_public = discord.ui.View(timeout=60)
         btn_pub = discord.ui.Button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="📢")
-        
         async def make_pub(inter):
             public_lines = []
             for k, v in tries:
@@ -163,7 +176,6 @@ class SecteurMenuView(SecureView):
                     public_lines.append(f"**{k}** : {', '.join(pseudos_pub)}")
             await inter.channel.send(f"📢 **RÉPERTOIRE DES SECTEURS**\n" + "\n".join(public_lines))
             await inter.response.send_message("✅ Répertoire posté.", ephemeral=True)
-        
         btn_pub.callback = make_pub; v_public.add_item(btn_pub)
         await i.response.send_message("📍 **Répertoire Privé :**\n" + ("\n".join(lines) if lines else "Vide"), view=v_public, ephemeral=True)
 
@@ -257,9 +269,15 @@ async def renforts(ctx):
         r2 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r2)
         q3 = await ctx.send("🏠 Adresse ?"); msgs.append(q3)
         r3 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r3)
-        q4 = await ctx.send("📍 Département ?"); msgs.append(q4)
+        q4 = await ctx.send("📍 Département (1-98, 2A, 2B) ?"); msgs.append(q4)
         r4 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r4)
-        s = r4.content.strip().upper().zfill(2); db = load_db(DB_FILE)
+        
+        s = est_secteur_valide(r4.content)
+        if not s:
+            await ctx.send("❌ Secteur invalide. Commande annulée.")
+            return
+
+        db = load_db(DB_FILE)
         mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
         emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
         emb.add_field(name="📍 Secteur", value=s, inline=True)
@@ -278,9 +296,7 @@ async def restore(ctx):
         for att in ctx.message.attachments:
             if att.filename in [DB_FILE, SANCTIONS_FILE]: 
                 await att.save(att.filename)
-                await ctx.send(f"✅ {att.filename} restauré avec succès.")
-    else:
-        await ctx.send("❌ Joins un fichier `.json` à ton message pour restaurer.")
+                await ctx.send(f"✅ {att.filename} restauré.")
 
 # --- TASKS & EVENTS ---
 @tasks.loop(hours=24)
@@ -299,7 +315,7 @@ async def on_ready():
     if not dynamic_status.is_running(): dynamic_status.start()
     u = await bot.fetch_user(ID_TON_COMPTE)
     f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
-    if u and f: await u.send("🚀 **Redémarrage effectué - Fichiers de données envoyés**", files=f)
+    if u and f: await u.send("🚀 **Redémarrage**", files=f)
 
 keep_alive()
 bot.run(TOKEN)
