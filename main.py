@@ -15,39 +15,29 @@ DB_FILE = "secteurs.json"
 DEPARTEMENTS_VALIDES = [str(i).zfill(2) for i in range(1, 96)] + ["2A", "2B"]
 
 intents = discord.Intents.default()
-intents.members = True          # Pour détecter les nouveaux membres
-intents.message_content = True  # Pour lire les commandes
+intents.members = True          
+intents.message_content = True  
 bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --- FONCTIONS DE LA BASE DE DONNÉES ---
+# --- GESTION JSON ---
 def load_db():
-    if not os.path.exists(DB_FILE):
-        return {}
+    if not os.path.exists(DB_FILE): return {}
     try:
-        with open(DB_FILE, "r") as f:
-            return json.load(f)
-    except Exception as e:
-        print(f"Erreur lecture JSON: {e}")
-        return {}
+        with open(DB_FILE, "r") as f: return json.load(f)
+    except: return {}
 
 def save_db(data):
-    try:
-        with open(DB_FILE, "w") as f:
-            json.dump(data, f, indent=4)
-    except Exception as e:
-        print(f"Erreur écriture JSON: {e}")
+    with open(DB_FILE, "w") as f: json.dump(data, f, indent=4)
 
-# --- ÉVÉNEMENT : LANCE LE BOT ---
 @bot.event
 async def on_ready():
     print(f"✅ Bot opérationnel : {bot.user}")
 
-# --- SYSTÈME DE BIENVENUE & ENREGISTREMENT AUTO ---
+# --- BIENVENUE & ENREGISTREMENT ---
 @bot.event
 async def on_member_join(member):
     try:
-        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉\n"
-                          "Réponds à ces questions pour ton enregistrement :")
+        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉")
         
         questions = [
             "Quel est ton pseudo AS ?",
@@ -59,88 +49,65 @@ async def on_member_join(member):
         reponses = []
         for q in questions:
             await member.send(q)
-            def check(m):
-                return m.author == member and isinstance(m.channel, discord.DMChannel)
-            
+            def check(m): return m.author == member and isinstance(m.channel, discord.DMChannel)
             try:
                 msg = await bot.wait_for("message", check=check, timeout=600.0)
                 reponses.append(msg.content)
-            except asyncio.TimeoutError:
-                return await member.send("⏱️ Temps écoulé. Rejoint le serveur pour recommencer.")
+            except asyncio.TimeoutError: return
 
-        # Validation du secteur (réponse à la 2ème question)
         secteur = reponses[1].strip().upper()
-        
-        if secteur not in DEPARTEMENTS_VALIDES:
-            await member.send(f"❌ '{secteur}' n'est pas un département valide. Ton inscription automatique a échoué.")
-        else:
+        if secteur in DEPARTEMENTS_VALIDES:
             db = load_db()
             if secteur not in db: db[secteur] = []
             if member.id not in db[secteur]:
                 db[secteur].append(member.id)
                 save_db(db)
-            await member.send(f"✅ Tu as été enregistré dans le secteur **{secteur}**.")
+            await member.send(f"✅ Enregistré dans le secteur **{secteur}**.")
 
-        # Envoi du récapitulatif au staff
         salon = bot.get_channel(ID_SALON_REPONSES)
         if salon:
             embed = discord.Embed(title=f"🆕 Nouveau membre : {member.name}", color=discord.Color.green())
-            for i, q in enumerate(questions):
-                embed.add_field(name=q, value=reponses[i], inline=False)
+            for i, q in enumerate(questions): embed.add_field(name=q, value=reponses[i], inline=False)
             await salon.send(embed=embed)
+    except Exception as e: print(f"Erreur join: {e}")
 
-    except Exception as e:
-        print(f"Erreur on_member_join pour {member.name}: {e}")
-
-# --- COMMANDE : RENFORTS ---
+# --- COMMANDE : RENFORTS (COOLDOWN : 1 fois toutes les 30 secondes par utilisateur) ---
 @bot.command()
+@commands.cooldown(1, 30, commands.BucketType.user)
 async def renforts(ctx):
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
-    
     try:
-        await ctx.send("🚨 **Demande de renfort**\nQuel est le **Numéro d'intervention** ?")
+        await ctx.send("🚨 **Demande de renfort**\nN° Intervention ?")
         n_inter = (await bot.wait_for("message", check=check, timeout=60.0)).content
-        
-        await ctx.send("Quels **véhicules** sont demandés ?")
+        await ctx.send("Quels **véhicules** ?")
         vehicules = (await bot.wait_for("message", check=check, timeout=60.0)).content
-        
-        await ctx.send("📍 Quel **Département** ? (ex: 75, 13, 2B)")
+        await ctx.send("📍 Département ? (ex: 75, 2B)")
         secteur = (await bot.wait_for("message", check=check, timeout=60.0)).content.strip().upper()
 
         if secteur not in DEPARTEMENTS_VALIDES:
-            return await ctx.send(f"❌ Secteur `{secteur}` invalide. Utilise un numéro de département officiel.")
+            return await ctx.send(f"❌ Secteur `{secteur}` invalide.")
 
         db = load_db()
-        membres_ids = db.get(secteur, [])
-        mentions = " ".join([f"<@{uid}>" for uid in membres_ids])
-
+        mentions = " ".join([f"<@{uid}>" for uid in db.get(secteur, [])])
         embed = discord.Embed(title="🚨 ALERTE RENFORTS 🚨", color=discord.Color.red())
         embed.add_field(name="Secteur", value=f"📍 {secteur}", inline=True)
         embed.add_field(name="N° Inter", value=n_inter, inline=True)
         embed.add_field(name="Véhicules", value=vehicules, inline=False)
-        embed.set_footer(text=f"Demandé par {ctx.author.display_name}")
+        await ctx.send(content=f"📢 {mentions if mentions else 'Aucun personnel'}", embed=embed)
+    except asyncio.TimeoutError: await ctx.send("❌ Trop lent !")
 
-        await ctx.send(content=f"📢 {mentions if mentions else 'Aucun personnel enregistré'}", embed=embed)
-
-    except asyncio.TimeoutError:
-        await ctx.send("❌ Commande annulée pour inactivité.")
-
-# --- COMMANDES DE GESTION (ADMIN) ---
+# --- GESTION ADMIN ---
 @bot.command()
-@commands.has_permissions(administrator=False)
+@commands.has_permissions(administrator=True)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     secteur = secteur.strip().upper()
-    if secteur not in DEPARTEMENTS_VALIDES:
-        return await ctx.send("❌ Département invalide (01-95, 2A, 2B).")
-
+    if secteur not in DEPARTEMENTS_VALIDES: return await ctx.send("❌ Invalide.")
     db = load_db()
     if secteur not in db: db[secteur] = []
     if membre.id not in db[secteur]:
-        db[secteur].append(member.id)
+        db[secteur].append(membre.id)
         save_db(db)
         await ctx.send(f"✅ {membre.display_name} ajouté au **{secteur}**.")
-    else:
-        await ctx.send("Déjà présent.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -151,22 +118,23 @@ async def retirer_secteur(ctx, membre: discord.Member, secteur: str):
         db[secteur].remove(membre.id)
         save_db(db)
         await ctx.send(f"🗑️ {membre.display_name} retiré du secteur **{secteur}**.")
-    else:
-        await ctx.send("Membre introuvable dans ce secteur.")
 
 @bot.command()
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def voir_base(ctx):
     db = load_db()
-    if not db: return await ctx.send("La base est vide.")
-    
-    embed = discord.Embed(title="📋 Répertoire des Secteurs", color=discord.Color.blue())
+    if not db: return await ctx.send("Base vide.")
+    embed = discord.Embed(title="📋 Répertoire", color=discord.Color.blue())
     for s in sorted(db.keys()):
         mentions = ", ".join([f"<@{uid}>" for uid in db[s]])
-        if mentions:
-            embed.add_field(name=f"📍 Secteur {s}", value=mentions, inline=False)
-    
+        if mentions: embed.add_field(name=f"📍 {s}", value=mentions, inline=False)
     await ctx.send(embed=embed)
 
-# --- LANCEMENT ---
-keep_alive() # Maintient le bot en ligne via ton script keep_alive.py
+# --- GESTION DES ERREURS DE COOLDOWN ---
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f"⏳ Calme-toi ! Réessaie dans **{error.retry_after:.1f}** secondes.")
+
+keep_alive()
 bot.run(TOKEN)
