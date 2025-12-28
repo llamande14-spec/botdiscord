@@ -35,7 +35,6 @@ def save_db(file, data):
 
 # --- LOGIQUE DE TRI ---
 def trier_secteurs(db):
-    """Trie les secteurs : Chiffres d'abord (01, 02), puis 2A, 2B, puis le reste."""
     def key_sort(item):
         k = item[0]
         if k == "2A": return (0, 2.1)
@@ -44,7 +43,22 @@ def trier_secteurs(db):
         return (1, k)
     return sorted(db.items(), key=key_sort)
 
-# --- VALIDATION SECTEUR (BOUTON FICHE) ---
+# --- SYSTÈME DE LOGS ---
+async def log_sanction(member, type_s, raison, admin):
+    try:
+        # On essaie de récupérer le salon de plusieurs manières pour être sûr
+        salon_logs = bot.get_channel(ID_SALON_LOGS) or await bot.fetch_channel(ID_SALON_LOGS)
+        if salon_logs:
+            emb = discord.Embed(title="📝 Journal des Sanctions", color=0x2f3136, timestamp=discord.utils.utcnow())
+            emb.add_field(name="👤 Membre", value=f"{member.mention} (`{member.id}`)", inline=False)
+            emb.add_field(name="⚖️ Type", value=f"**{type_s}**", inline=True)
+            emb.add_field(name="🛡️ Modérateur", value=f"{admin.mention}", inline=True)
+            emb.add_field(name="💬 Raison", value=raison, inline=False)
+            await salon_logs.send(embed=emb)
+    except Exception as e:
+        print(f"Erreur Logs: {e}")
+
+# --- VALIDATION SECTEUR ---
 class ValidationSecteurView(discord.ui.View):
     def __init__(self, member_id, secteur):
         super().__init__(timeout=None)
@@ -55,63 +69,37 @@ class ValidationSecteurView(discord.ui.View):
     async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
         if not interaction.user.guild_permissions.administrator:
             return await interaction.response.send_message("❌ Seul un admin peut valider.", ephemeral=True)
-        
         db = load_db(DB_FILE)
         db.setdefault(self.secteur, [])
         if self.member_id not in db[self.secteur]:
             db[self.secteur].append(self.member_id)
             save_db(DB_FILE, db)
-            
         button.disabled = True
         button.label = "Secteur Validé"
         await interaction.response.edit_message(view=self)
-        await interaction.followup.send(f"✅ Membre ajouté au secteur {self.secteur}.", ephemeral=True)
 
-# --- QUESTIONNAIRE DE BIENVENUE ---
+# --- QUESTIONNAIRE ---
 async def lancer_questionnaire(member):
     try:
-        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉")
-        questions = ["Pseudo AS ?", "Secteur (Département, ex: 75) ?", "Motivation ?", "Autres jeux ?"]
+        await member.send(f"Salut {member.name} ! Bienvenue 🎉")
+        questions = ["Pseudo AS ?", "Secteur (ex: 75) ?", "Motivation ?", "Autres jeux ?"]
         reponses = []
         for q in questions:
             await member.send(q)
             def check(m): return m.author == member and isinstance(m.channel, discord.DMChannel)
             msg = await bot.wait_for("message", check=check, timeout=600.0)
             reponses.append(msg.content)
-
         secteur = reponses[1].strip().upper().zfill(2) if reponses[1].strip().isdigit() and len(reponses[1].strip()) == 1 else reponses[1].strip().upper()
-        
         salon = bot.get_channel(ID_SALON_REPONSES)
         if salon:
             emb = discord.Embed(title=f"🆕 Fiche de {member.name}", color=discord.Color.blue())
             emb.add_field(name="Pseudo AS", value=reponses[0], inline=True)
             emb.add_field(name="Secteur proposé", value=secteur, inline=True)
-            emb.set_footer(text="Validation admin requise")
             await salon.send(embed=emb, view=ValidationSecteurView(member.id, secteur))
         await member.send("Merci ! Ta fiche est en attente de validation.")
     except: pass
 
-# --- SYSTÈME DE LOGS ---
-async def log_sanction(member, type_s, raison, admin):
-    salon_logs = bot.get_channel(ID_SALON_LOGS) or await bot.fetch_channel(ID_SALON_LOGS)
-    if salon_logs:
-        emb = discord.Embed(title="📝 Journal des Sanctions", color=0x2f3136)
-        emb.add_field(name="👤 Membre", value=f"{member.mention}", inline=False)
-        emb.add_field(name="⚖️ Type", value=f"**{type_s}**", inline=True)
-        emb.add_field(name="🛡️ Admin", value=f"{admin.mention}", inline=True)
-        emb.add_field(name="💬 Raison", value=raison, inline=False)
-        emb.set_timestamp()
-        await salon_logs.send(embed=emb)
-
-async def notifier_sanction(member, type_s, raison):
-    try:
-        emb = discord.Embed(title="⚠️ Notification de Sanction", color=discord.Color.red())
-        emb.add_field(name="Type", value=type_s, inline=True)
-        emb.add_field(name="Raison", value=raison, inline=False)
-        await member.send(embed=emb)
-    except: pass
-
-# --- MODALS SANCTIONS ---
+# --- MODALS ---
 class SanctionGlobalModal(discord.ui.Modal):
     def __init__(self, type_s, admin):
         super().__init__(title=f"Action : {type_s}")
@@ -123,12 +111,14 @@ class SanctionGlobalModal(discord.ui.Modal):
         await interaction.response.defer(ephemeral=True)
         uid_str = self.user_input.value.replace("<@", "").replace(">", "").replace("!", "")
         member = interaction.guild.get_member(int(uid_str))
-        if not member: return await interaction.followup.send("❌ Inconnu.", ephemeral=True)
+        if not member: return await interaction.followup.send("❌ Membre introuvable.", ephemeral=True)
+        
         db = load_db(SANCTIONS_FILE); db.setdefault(str(member.id), [])
         db[str(member.id)].append({"type": self.type_s, "raison": self.raison.value, "date": datetime.datetime.now().strftime("%d/%m/%Y"), "par": self.admin.display_name})
         save_db(SANCTIONS_FILE, db)
+        
         await log_sanction(member, self.type_s, self.raison.value, self.admin)
-        await notifier_sanction(member, self.type_s, self.raison.value)
+        
         try:
             if self.type_s == "KICK": await member.kick(reason=self.raison.value)
             elif self.type_s == "BAN": await member.ban(reason=self.raison.value)
@@ -136,7 +126,7 @@ class SanctionGlobalModal(discord.ui.Modal):
                 m = 10 if "10m" in self.type_s else (60 if "1h" in self.type_s.lower() else 1440)
                 await member.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=m), reason=self.raison.value)
         except: pass
-        await interaction.followup.send(f"✅ Fait.", ephemeral=True)
+        await interaction.followup.send(f"✅ Sanction appliquée.", ephemeral=True)
 
 class ViewCasierModal(discord.ui.Modal, title="Consulter un Casier"):
     user_input = discord.ui.TextInput(label="ID ou Mention", required=True)
@@ -188,10 +178,19 @@ class SecteurMenuView(SecureView):
     @discord.ui.button(label="Voir Répertoire", style=discord.ButtonStyle.secondary)
     async def view(self, i, b):
         db = load_db(DB_FILE)
-        secteurs_tries = trier_secteurs(db)
-        lines = [f"**{k}** : " + ", ".join([f"<@{u}>" for u in v]) for k, v in secteurs_tries if v]
-        msg = "**📍 Répertoire :**\n" + ("\n".join(lines) if lines else "Vide")
+        sect_tries = trier_secteurs(db)
         
+        # On traduit les IDs en pseudos pour l'affichage
+        lines = []
+        for k, v in sect_tries:
+            if v:
+                pseudos = []
+                for uid in v:
+                    member = i.guild.get_member(uid)
+                    pseudos.append(member.display_name if member else f"Inconnu({uid})")
+                lines.append(f"**{k}** : {', '.join(pseudos)}")
+        
+        msg = "**📍 Répertoire :**\n" + ("\n".join(lines) if lines else "Vide")
         view = discord.ui.View(timeout=30)
         btn_public = discord.ui.Button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="📢")
         async def make_public(inter):
