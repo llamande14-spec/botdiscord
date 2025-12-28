@@ -156,14 +156,13 @@ class SecteurMenuView(SecureView):
         btn_pub = discord.ui.Button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="📢")
         
         async def make_pub(inter):
-            # FIX : On récupère le display_name pour l'affichage public au lieu de l'ID brut
             public_lines = []
             for k, v in tries:
                 if v:
                     pseudos_pub = [inter.guild.get_member(uid).display_name if inter.guild.get_member(uid) else f"Inconnu({uid})" for uid in v]
                     public_lines.append(f"**{k}** : {', '.join(pseudos_pub)}")
             await inter.channel.send(f"📢 **RÉPERTOIRE DES SECTEURS**\n" + "\n".join(public_lines))
-            await inter.response.send_message("✅ Répertoire posté avec les pseudos.", ephemeral=True)
+            await inter.response.send_message("✅ Répertoire posté.", ephemeral=True)
         
         btn_pub.callback = make_pub; v_public.add_item(btn_pub)
         await i.response.send_message("📍 **Répertoire Privé :**\n" + ("\n".join(lines) if lines else "Vide"), view=v_public, ephemeral=True)
@@ -192,10 +191,8 @@ class SanctionGlobalView(SecureView):
     async def v_cas(self, i, b):
         modal = discord.ui.Modal(title="Casier"); u_in = discord.ui.TextInput(label="Pseudo/ID"); modal.add_item(u_in)
         async def on_sub(inter):
-            m = trouver_membre(inter.guild, u_in.value)
-            uid = str(m.id) if m else u_in.value.strip() # Lit l'ID en texte pour correspondre au JSON
-            db = load_db(SANCTIONS_FILE)
-            emb = discord.Embed(title=f"Casier de {m.display_name if m else uid}", color=0xe74c3c)
+            m = trouver_membre(inter.guild, u_in.value); uid = str(m.id) if m else u_in.value.strip()
+            db = load_db(SANCTIONS_FILE); emb = discord.Embed(title=f"Casier de {m.display_name if m else uid}", color=0xe74c3c)
             if uid in db:
                 for idx, s in enumerate(db[uid], 1): emb.add_field(name=f"#{idx} {s['type']}", value=f"📝 {s['raison']}\n📅 {s['date']}", inline=False)
             else: emb.description = "Vierge."
@@ -217,6 +214,21 @@ class SanctionGlobalModal(discord.ui.Modal):
         db[uid].append({"type": self.type_s, "raison": self.r_in.value, "date": datetime.datetime.now().strftime("%d/%m/%Y"), "par": self.admin.display_name})
         save_db(SANCTIONS_FILE, db)
         await interaction.followup.send(f"✅ Sanction appliquée.", ephemeral=True)
+
+# --- RENFORTS ---
+class RenfortView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+        self.intervenants = []
+    @discord.ui.button(label="Je prends le renfort", emoji="🚑", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.mention not in self.intervenants:
+            self.intervenants.append(interaction.user.mention)
+            embed = interaction.message.embeds[0]
+            val = ", ".join(self.intervenants)
+            if len(embed.fields) > 4: embed.set_field_at(4, name="👥 En route", value=val, inline=False)
+            else: embed.add_field(name="👥 En route", value=val, inline=False)
+            await interaction.response.edit_message(embed=embed, view=self)
 
 # --- COMMANDES ---
 @bot.command()
@@ -259,12 +271,23 @@ async def renforts(ctx):
         await ctx.send(content=f"📢 {mentions}", embed=emb, view=RenfortView())
     except: pass
 
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restore(ctx):
+    if ctx.message.attachments:
+        for att in ctx.message.attachments:
+            if att.filename in [DB_FILE, SANCTIONS_FILE]: 
+                await att.save(att.filename)
+                await ctx.send(f"✅ {att.filename} restauré avec succès.")
+    else:
+        await ctx.send("❌ Joins un fichier `.json` à ton message pour restaurer.")
+
 # --- TASKS & EVENTS ---
 @tasks.loop(hours=24)
 async def auto_backup():
     u = await bot.fetch_user(ID_TON_COMPTE)
     f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
-    if u and f: await u.send("📦 Backup Automatique (24h)", files=f)
+    if u and f: await u.send("📦 **Backup Automatique (24h)**", files=f)
 
 @bot.event
 async def on_member_join(member): await lancer_questionnaire(member)
@@ -276,7 +299,7 @@ async def on_ready():
     if not dynamic_status.is_running(): dynamic_status.start()
     u = await bot.fetch_user(ID_TON_COMPTE)
     f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
-    if u and f: await u.send("🚀 Redémarrage", files=f)
+    if u and f: await u.send("🚀 **Redémarrage effectué - Fichiers de données envoyés**", files=f)
 
 keep_alive()
 bot.run(TOKEN)
