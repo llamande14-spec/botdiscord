@@ -21,17 +21,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 # --- GESTION JSON ---
 def load_db():
-    if not os.path.exists(DB_FILE): return {}
+    if not os.path.exists(DB_FILE):
+        print(f"⚠️ Le fichier {DB_FILE} n'existe pas. Création d'une nouvelle base.")
+        return {}
     try:
-        with open(DB_FILE, "r") as f: return json.load(f)
-    except: return {}
-
-def save_db(data):
-    with open(DB_FILE, "w") as f: json.dump(data, f, indent=4)
-
-@bot.event
-async def on_ready():
-    print(f"✅ Bot opérationnel : {bot.user}")
+        with open(DB_FILE, "r") as f:
+            data = json.load(f)
+            print(f"✅ Base de données chargée : {len(data)} secteurs trouvés.")
+            return data
+    except json.JSONDecodeError:
+        print(f"❌ Erreur critique : Le fichier {DB_FILE} est corrompu ou vide. Backup nécessaire.")
+        return {}
+    except Exception as e:
+        print(f"❌ Erreur inconnue lors du chargement : {e}")
+        return {}
 
 # --- BIENVENUE & ENREGISTREMENT ---
 @bot.event
