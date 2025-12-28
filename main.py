@@ -13,7 +13,6 @@ ID_TON_COMPTE = 697919761312383057
 DB_FILE = "secteurs.json"
 SANCTIONS_FILE = "sanctions.json"
 
-# Liste des départements valides (01-95, 2A, 2B)
 DEPARTEMENTS_VALIDES = [str(i).zfill(2) for i in range(1, 96)] + ["2A", "2B"]
 
 intents = discord.Intents.default()
@@ -26,10 +25,8 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def load_db(file):
     if not os.path.exists(file): return {}
     try:
-        with open(file, "r", encoding='utf-8') as f:
-            return json.load(f)
-    except:
-        return {}
+        with open(file, "r", encoding='utf-8') as f: return json.load(f)
+    except: return {}
 
 def save_db(file, data):
     with open(file, "w", encoding='utf-8') as f:
@@ -38,7 +35,6 @@ def save_db(file, data):
 # --- NOTIFICATION MP ---
 
 async def notifier_membre(membre, type_s, raison):
-    """Envoie un message privé au membre pour l'informer de sa sanction"""
     embed = discord.Embed(
         title="⚠️ Information de Sanction",
         description=f"Bonjour {membre.name}, une action a été prise sur ton compte sur le serveur **{membre.guild.name}**.",
@@ -46,35 +42,23 @@ async def notifier_membre(membre, type_s, raison):
     )
     embed.add_field(name="Type de sanction", value=type_s, inline=True)
     embed.add_field(name="Raison", value=raison, inline=False)
-    embed.set_footer(text="Ceci est un message automatique.")
-    
     try:
         await membre.send(embed=embed)
         return True
-    except:
-        return False
+    except: return False
 
-# --- SYSTÈME DE SANCTIONS (MODALS & VIEWS) ---
+# --- MODALS (FENÊTRES) ---
 
 class ReasonModal(discord.ui.Modal, title="Détails de la sanction"):
-    raison = discord.ui.TextInput(
-        label="Raison du motif",
-        style=discord.TextStyle.paragraph,
-        placeholder="Expliquez pourquoi...",
-        required=True,
-        min_length=5
-    )
+    raison = discord.ui.TextInput(label="Raison du motif", style=discord.TextStyle.paragraph, required=True, min_length=5)
 
     def __init__(self, target, admin, type_sanction):
         super().__init__()
-        self.target = target
-        self.admin = admin
-        self.type_sanction = type_sanction
+        self.target, self.admin, self.type_sanction = target, admin, type_sanction
 
     async def on_submit(self, interaction: discord.Interaction):
         db = load_db(SANCTIONS_FILE)
         uid = str(self.target.id)
-        
         if uid not in db: db[uid] = []
         
         entry = {
@@ -83,41 +67,50 @@ class ReasonModal(discord.ui.Modal, title="Détails de la sanction"):
             "date": discord.utils.utcnow().strftime("%d/%m/%Y %H:%M"),
             "par": self.admin.display_name
         }
-        
         db[uid].append(entry)
         save_db(SANCTIONS_FILE, db)
 
-        # 1. Tentative d'envoi du MP avant le kick/ban
-        mp_status = await notifier_membre(self.target, self.type_sanction, self.raison.value)
+        await notifier_membre(self.target, self.type_sanction, self.raison.value)
 
-        # 2. Exécution des actions réelles
         try:
-            if self.type_sanction == "KICK":
-                await self.target.kick(reason=self.raison.value)
-            elif self.type_sanction == "BAN":
-                await self.target.ban(reason=self.raison.value)
-            elif self.type_sanction == "MUTE (1h)":
-                await self.target.timeout(discord.utils.utcnow() + datetime.timedelta(hours=1), reason=self.raison.value)
-            elif self.type_sanction == "EXCLUSION (24h)":
-                await self.target.timeout(discord.utils.utcnow() + datetime.timedelta(days=1), reason=self.raison.value)
+            if self.type_sanction == "KICK": await self.target.kick(reason=self.raison.value)
+            elif self.type_sanction == "BAN": await self.target.ban(reason=self.raison.value)
+            elif self.type_sanction == "MUTE (10m)": await self.target.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=10), reason=self.raison.value)
+            elif self.type_sanction == "MUTE (1h)": await self.target.timeout(discord.utils.utcnow() + datetime.timedelta(hours=1), reason=self.raison.value)
+            elif self.type_sanction == "EXCLUSION (24h)": await self.target.timeout(discord.utils.utcnow() + datetime.timedelta(days=1), reason=self.raison.value)
         except Exception as e:
-            return await interaction.response.send_message(f"⚠️ Erreur action Discord : {e}", ephemeral=True)
+            return await interaction.response.send_message(f"⚠️ Erreur Discord : {e}", ephemeral=True)
 
-        msg_confirm = f"✅ **{self.type_sanction}** enregistrée."
-        if not mp_status: msg_confirm += " *(Le membre n'a pas pu être prévenu en MP)*"
-        
-        await interaction.response.send_message(msg_confirm, ephemeral=False)
+        await interaction.response.send_message(f"✅ **{self.type_sanction}** appliquée à {self.target.mention}", ephemeral=False)
+
+class DeleteSanctionModal(discord.ui.Modal, title="Supprimer une sanction"):
+    index = discord.ui.TextInput(label="Numéro de la sanction (voir !casier)", placeholder="Ex: 1", min_length=1, max_length=3)
+
+    def __init__(self, target):
+        super().__init__()
+        self.target = target
+
+    async def on_submit(self, interaction: discord.Interaction):
+        db = load_db(SANCTIONS_FILE)
+        uid = str(self.target.id)
+        if uid not in db or not db[uid]: return await interaction.response.send_message("Casier vide.", ephemeral=True)
+        try:
+            idx = int(self.index.value) - 1
+            suppr = db[uid].pop(idx)
+            save_db(SANCTIONS_FILE, db)
+            await interaction.response.send_message(f"🗑️ Sanction #{self.index.value} ({suppr['type']}) supprimée.", ephemeral=False)
+        except: await interaction.response.send_message("Numéro invalide.", ephemeral=True)
+
+# --- PANEL DE SANCTION ---
 
 class SanctionView(discord.ui.View):
     def __init__(self, target: discord.Member, admin: discord.Member):
         super().__init__(timeout=60)
-        self.target = target
-        self.admin = admin
+        self.target, self.admin = target, admin
 
-    async def open_modal(self, interaction, type_sanction):
-        if interaction.user != self.admin:
-            return await interaction.response.send_message("Tu n'es pas l'auteur.", ephemeral=True)
-        await interaction.response.send_modal(ReasonModal(self.target, self.admin, type_sanction))
+    async def open_modal(self, interaction, type_s):
+        if interaction.user != self.admin: return
+        await interaction.response.send_modal(ReasonModal(self.target, self.admin, type_s))
 
     @discord.ui.button(label="Sommation", style=discord.ButtonStyle.secondary, row=0)
     async def b1(self, i, b): await self.open_modal(i, "SOMMATION")
@@ -125,14 +118,23 @@ class SanctionView(discord.ui.View):
     async def b2(self, i, b): await self.open_modal(i, "RAPPEL")
     @discord.ui.button(label="Avertissement", style=discord.ButtonStyle.danger, row=0)
     async def b3(self, i, b): await self.open_modal(i, "AVERTISSEMENT")
-    @discord.ui.button(label="Mute (1h)", style=discord.ButtonStyle.secondary, row=1)
-    async def b4(self, i, b): await self.open_modal(i, "MUTE (1h)")
-    @discord.ui.button(label="Exclure (24h)", style=discord.ButtonStyle.secondary, row=1)
-    async def b5(self, i, b): await self.open_modal(i, "EXCLUSION (24h)")
+    
+    @discord.ui.button(label="Mute 10m", style=discord.ButtonStyle.secondary, row=1)
+    async def b4(self, i, b): await self.open_modal(i, "MUTE (10m)")
+    @discord.ui.button(label="Mute 1h", style=discord.ButtonStyle.secondary, row=1)
+    async def b5(self, i, b): await self.open_modal(i, "MUTE (1h)")
+    @discord.ui.button(label="Exclure 24h", style=discord.ButtonStyle.secondary, row=1)
+    async def b6(self, i, b): await self.open_modal(i, "EXCLUSION (24h)")
+    
     @discord.ui.button(label="KICK", style=discord.ButtonStyle.danger, row=2)
-    async def b6(self, i, b): await self.open_modal(i, "KICK")
+    async def b7(self, i, b): await self.open_modal(i, "KICK")
     @discord.ui.button(label="BAN", style=discord.ButtonStyle.danger, row=2)
-    async def b7(self, i, b): await self.open_modal(i, "BAN")
+    async def b8(self, i, b): await self.open_modal(i, "BAN")
+
+    @discord.ui.button(label="Supprimer une sanction", emoji="🗑️", style=discord.ButtonStyle.gray, row=3)
+    async def b9(self, i, b):
+        if i.user != self.admin: return
+        await i.response.send_modal(DeleteSanctionModal(self.target))
 
 # --- QUESTIONNAIRE ---
 
@@ -143,42 +145,30 @@ async def lancer_questionnaire(member):
         reponses = []
         for q in questions:
             await member.send(q)
-            def check(m): return m.author == member and isinstance(m.channel, discord.DMChannel)
-            msg = await bot.wait_for("message", check=check, timeout=600.0)
+            msg = await bot.wait_for("message", check=lambda m: m.author == member and isinstance(m.channel, discord.DMChannel), timeout=600.0)
             reponses.append(msg.content)
         
-        secteur = reponses[1].strip().upper()
-        if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
+        sect = reponses[1].strip().upper().zfill(2) if reponses[1].strip().isdigit() and len(reponses[1].strip()) == 1 else reponses[1].strip().upper()
         st = "❌ Invalide"
-        if secteur in DEPARTEMENTS_VALIDES:
+        if sect in DEPARTEMENTS_VALIDES:
             db = load_db(DB_FILE)
-            if secteur not in db: db[secteur] = []
-            if member.id not in db[secteur]:
-                db[secteur].append(member.id)
+            if sect not in db: db[sect] = []
+            if member.id not in db[sect]:
+                db[sect].append(member.id)
                 save_db(DB_FILE, db)
-                st = f"✅ Enregistré ({secteur})"
+                st = f"✅ Enregistré ({sect})"
         
         salon = bot.get_channel(ID_SALON_REPONSES)
         if salon:
             emb = discord.Embed(title=f"🆕 Fiche de {member.name}", color=discord.Color.blue())
             emb.add_field(name="Pseudo", value=reponses[0])
-            emb.add_field(name="Secteur", value=reponses[1])
-            emb.add_field(name="Motivation", value=reponses[2], inline=False)
+            emb.add_field(name="Secteur", value=sect)
             emb.add_field(name="Statut", value=st)
             await salon.send(embed=emb)
         await member.send(f"Merci ! {st}")
     except: pass
 
-# --- ÉVÉNEMENTS & TÂCHES ---
-
-@tasks.loop(hours=24)
-async def backup_automatique():
-    await bot.wait_until_ready()
-    user = await bot.fetch_user(ID_TON_COMPTE)
-    files = [discord.File(f) for f in [DB_FILE, SANCTIONS_FILE] if os.path.exists(f)]
-    if user and files:
-        try: await user.send("📦 **Backup Quotidien**", files=files)
-        except: pass
+# --- COMMANDES ---
 
 @bot.event
 async def on_ready():
@@ -186,34 +176,35 @@ async def on_ready():
     if not backup_automatique.is_running(): backup_automatique.start()
 
 @bot.event
-async def on_member_join(member):
-    await lancer_questionnaire(member)
+async def on_member_join(member): await lancer_questionnaire(member)
 
-# --- COMMANDES ---
+@tasks.loop(hours=24)
+async def backup_automatique():
+    user = await bot.fetch_user(ID_TON_COMPTE)
+    files = [discord.File(f) for f in [DB_FILE, SANCTIONS_FILE] if os.path.exists(f)]
+    if user and files: await user.send("📦 **Backup Quotidien**", files=files)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def sanction(ctx, membre: discord.Member):
-    emb = discord.Embed(title=f"⚖️ Sanctionner {membre.display_name}", color=0xffa500)
-    await ctx.send(embed=emb, view=SanctionView(membre, ctx.author))
+    await ctx.send(embed=discord.Embed(title=f"⚖️ Sanctionner {membre.display_name}", color=0xffa500), view=SanctionView(membre, ctx.author))
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def casier(ctx, membre: discord.Member):
     db = load_db(SANCTIONS_FILE)
     uid = str(membre.id)
-    if uid not in db or not db[uid]: return await ctx.send("✅ Casier vierge.")
+    if uid not in db or not db[uid]: return await ctx.send("✅ Casier vide.")
     emb = discord.Embed(title=f"📁 Casier : {membre.display_name}", color=discord.Color.red())
     for i, s in enumerate(db[uid], 1):
-        emb.add_field(name=f"#{i} {s['type']}", value=f"📝 {s['raison']}\n📅 {s['date']}\n👮 par {s['par']}", inline=False)
+        emb.add_field(name=f"#{i} {s['type']}", value=f"📝 {s['raison']}\n📅 {s['date']}\n👮 {s['par']}", inline=False)
     await ctx.send(embed=emb)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
-    secteur = secteur.strip().upper()
-    if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
-    if secteur not in DEPARTEMENTS_VALIDES: return await ctx.send("❌ Département invalide.")
+    secteur = secteur.strip().upper().zfill(2) if secteur.isdigit() and len(secteur) == 1 else secteur.upper()
+    if secteur not in DEPARTEMENTS_VALIDES: return await ctx.send("❌ Invalide.")
     db = load_db(DB_FILE)
     if secteur not in db: db[secteur] = []
     if membre.id not in db[secteur]:
@@ -223,39 +214,26 @@ async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
 
 @bot.command()
 @commands.has_permissions(administrator=True)
-async def voir_base(ctx, s_demande: str = None):
+async def voir_base(ctx, s: str = None):
     db = load_db(DB_FILE)
     if not db: return await ctx.send("Base vide.")
-    if s_demande:
-        s_demande = s_demande.strip().upper()
-        if s_demande in db:
-            mentions = ", ".join([f"<@{uid}>" for uid in db[s_demande]])
-            return await ctx.send(embed=discord.Embed(title=f"📍 Secteur {s_demande}", description=mentions))
-        return await ctx.send("Personne ici.")
-    # Liste complète
-    msg = "**📋 Répertoire :**\n"
-    for s in sorted(db.keys()):
-        m = ", ".join([f"<@{u}>" for u in db[s]])
-        if m: msg += f"**{s}** : {m}\n"
+    msg = f"**Secteur {s} :** " + ", ".join([f"<@{u}>" for u in db.get(s, [])]) if s else "**Répertoire :**\n" + "\n".join([f"**{k}** : {', '.join([f'<@{u}>' for u in v])}" for k, v in sorted(db.items()) if v])
     await ctx.send(msg[:2000])
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def renforts(ctx):
-    def check(m): return m.author == ctx.author and m.channel == ctx.channel
     try:
         await ctx.send("🚨 N° Inter ?")
-        n = (await bot.wait_for("message", check=check, timeout=60)).content
+        n = (await bot.wait_for("message", check=lambda m: m.author == ctx.author and m.channel == ctx.channel, timeout=60)).content
         await ctx.send("🚒 Véhicules ?")
-        v = (await bot.wait_for("message", check=check, timeout=60)).content
+        v = (await bot.wait_for("message", check=lambda m: m.author == ctx.author and m.channel == ctx.channel, timeout=60)).content
         await ctx.send("📍 Département ?")
-        s = (await bot.wait_for("message", check=check, timeout=60)).content.strip().upper()
+        s = (await bot.wait_for("message", check=lambda m: m.author == ctx.author and m.channel == ctx.channel, timeout=60)).content.strip().upper()
         db = load_db(DB_FILE)
         mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
         emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
-        emb.add_field(name="Secteur", value=s)
-        emb.add_field(name="N°", value=n)
-        emb.add_field(name="Demande", value=v)
+        emb.add_field(name="Secteur", value=s); emb.add_field(name="N°", value=n); emb.add_field(name="Demande", value=v)
         await ctx.send(content=f"📢 {mentions}", embed=emb)
     except: pass
 
@@ -263,9 +241,7 @@ async def renforts(ctx):
 @commands.has_permissions(administrator=True)
 async def backup(ctx):
     files = [discord.File(f) for f in [DB_FILE, SANCTIONS_FILE] if os.path.exists(f)]
-    if files:
-        await ctx.author.send("📦 Backup :", files=files)
-        await ctx.send("✅ Envoyé en MP.")
+    if files: await ctx.author.send("📦 Backup :", files=files)
 
 @bot.command()
 @commands.has_permissions(administrator=True)
@@ -274,7 +250,7 @@ async def restore(ctx):
         att = ctx.message.attachments[0]
         if att.filename in [DB_FILE, SANCTIONS_FILE]:
             await att.save(att.filename)
-            await ctx.send(f"✅ `{att.filename}` restauré.")
+            await ctx.send(f"✅ {att.filename} restauré.")
 
 keep_alive()
 bot.run(TOKEN)
