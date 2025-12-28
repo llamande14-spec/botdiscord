@@ -127,7 +127,7 @@ class RenfortView(discord.ui.View):
         else:
             await interaction.response.send_message("Déjà enregistré !", ephemeral=True)
 
-# --- MODALS & VIEWS SÉCURISÉES ---
+# --- VIEWS SÉCURISÉES ---
 class SecureView(discord.ui.View):
     def __init__(self, ctx):
         super().__init__(timeout=60)
@@ -138,10 +138,7 @@ class SecureView(discord.ui.View):
             return False
         return True
 
-# --- RESTE DU CODE (PANEL, COMMANDES, EVENTS) ---
-# [Ici se trouvent les classes MainMenuView, SecteurMenuView, etc. déjà fournies précédemment]
-# ... (Voir structure complète ci-dessous pour intégration)
-
+# --- PANELS ET MODALS ---
 class SanctionGlobalModal(discord.ui.Modal):
     def __init__(self, type_s, admin, target_member=None):
         super().__init__(title=f"Action : {type_s}")
@@ -183,10 +180,20 @@ class SecteurMenuView(SecureView):
     async def add(self, i, b): await i.response.send_modal(SecteurActionModal("Ajouter"))
     @discord.ui.button(label="Retirer", style=discord.ButtonStyle.danger)
     async def rem(self, i, b): await i.response.send_modal(SecteurActionModal("Retirer"))
+    
     @discord.ui.button(label="Voir Répertoire", style=discord.ButtonStyle.secondary)
     async def view(self, i, b):
-        db = load_db(DB_FILE); msg = "**📍 Répertoire :**\n" + "\n".join([f"**{k}** : {', '.join([f'<@{u}>' for u in v])}" for k, v in db.items() if v])
-        await i.response.send_message(msg if len(msg)>15 else "Vide", ephemeral=True)
+        db = load_db(DB_FILE)
+        lines = []
+        for k, v in db.items():
+            if v:
+                # --- LA LIGNE CORRIGÉE POUR AFFICHER LES NOMS ---
+                mentions = ", ".join([i.guild.get_member(u).display_name if i.guild.get_member(u) else f"Utilisateur Inconnu ({u})" for u in v])
+                lines.append(f"**{k}** : {mentions}")
+        
+        msg = "**📍 Répertoire des Secteurs :**\n" + "\n".join(lines)
+        await i.response.send_message(msg if lines else "Le répertoire est vide.", ephemeral=True)
+
     @discord.ui.button(label="Retour", emoji="↩️", style=discord.ButtonStyle.gray)
     async def back(self, i, b): await i.response.edit_message(embed=discord.Embed(title="🛡️ Menu Admin"), view=MainMenuView(self.ctx))
 
@@ -234,12 +241,13 @@ class SecteurActionModal(discord.ui.Modal):
             if s in db and uid in db[s]: db[s].remove(uid)
         save_db(DB_FILE, db); await interaction.response.send_message("✅ Effectué", ephemeral=True)
 
+# --- COMMANDES ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def panel(ctx):
     view = MainMenuView(ctx)
     msg = await ctx.send(embed=discord.Embed(title="🛡️ Menu Admin", description="*Expire après 1 min.*", color=0x2b2d31), view=view)
-    await view.wait(); 
+    await view.wait()
     try: await msg.delete()
     except: pass
 
