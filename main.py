@@ -229,9 +229,11 @@ class SanctionGlobalModal(discord.ui.Modal):
 
 # --- RENFORTS ---
 class RenfortView(discord.ui.View):
-    def __init__(self):
+    def __init__(self, author_id):
         super().__init__(timeout=None)
+        self.author_id = author_id
         self.intervenants = []
+
     @discord.ui.button(label="Je prends le renfort", emoji="🚑", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.mention not in self.intervenants:
@@ -241,6 +243,18 @@ class RenfortView(discord.ui.View):
             if len(embed.fields) > 4: embed.set_field_at(4, name="👥 En route", value=val, inline=False)
             else: embed.add_field(name="👥 En route", value=val, inline=False)
             await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Fin de besoin", emoji="🛑", style=discord.ButtonStyle.danger)
+    async def end_need(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Seul un admin ou l'auteur du message peut stopper l'alerte
+        if not interaction.user.guild_permissions.administrator and interaction.user.id != self.author_id:
+            return await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
+        
+        for item in self.children: item.disabled = True
+        embed = interaction.message.embeds[0]
+        embed.color = discord.Color.greyple()
+        embed.title = "🛑 RENFORTS TERMINÉS"
+        await interaction.response.edit_message(embed=embed, view=self)
 
 # --- COMMANDES ---
 @bot.command()
@@ -265,33 +279,42 @@ async def renforts(ctx):
     try:
         q1 = await ctx.send("🚨 N° Inter ?"); msgs.append(q1)
         r1 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r1)
+        
         q2 = await ctx.send("☎️ Motif de l'appel ?"); msgs.append(q2)
         r2 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r2)
+        
         q3 = await ctx.send("🚒 Véhicules ?"); msgs.append(q3)
         r3 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r3)
+        
         q4 = await ctx.send("🏠 Adresse ?"); msgs.append(q4)
         r4 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r4)
+        
         q5 = await ctx.send("📍 Département (1-98, 2A, 2B) ?"); msgs.append(q5)
         r5 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r5)
         
-        s = est_secteur_valide(r4.content)
+        # On valide bien la réponse r5 (le département)
+        s = est_secteur_valide(r5.content)
         if not s:
             await ctx.send("❌ Secteur invalide. Commande annulée.")
             return
 
         db = load_db(DB_FILE)
         mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
+        
         emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
         emb.add_field(name="📍 Secteur", value=s, inline=True)
-        emb.add_field(name="☎️ Motif ", value=s, inline=True)
+        emb.add_field(name="☎️ Motif", value=r2.content, inline=True)
         emb.add_field(name="🔢 Inter", value=r1.content, inline=True)
-        emb.add_field(name="🏠 Adresse", value=r3.content, inline=False)
-        emb.add_field(name="🚒 Besoin", value=r2.content, inline=False)
+        emb.add_field(name="🏠 Adresse", value=r4.content, inline=False)
+        emb.add_field(name="🚒 Besoin", value=r3.content, inline=False)
+        
         try: await ctx.channel.delete_messages(msgs)
         except: pass
-        await ctx.send(content=f"📢 {mentions}", embed=emb, view=RenfortView())
-    except: pass
-
+        
+        # On passe l'ID de l'auteur pour que le bouton "Fin de besoin" fonctionne
+        await ctx.send(content=f"📢 {mentions}", embed=emb, view=RenfortView(ctx.author.id))
+    except:
+        pass
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restore(ctx):
