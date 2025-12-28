@@ -33,7 +33,7 @@ def save_db(data):
 async def lancer_questionnaire(member):
     """Gère le questionnaire complet et l'enregistrement automatique"""
     try:
-        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉\nRéponds à ces questions :")
+        await member.send(f"Salut {member.name} ! Bienvenue sur **{member.guild.name}** 🎉")
         questions = [
             "Quel est ton pseudo AS ?",
             "Ton secteur (Département, ex: 75, 13, 2A) ?",
@@ -74,71 +74,95 @@ async def lancer_questionnaire(member):
         return True
     except: return False
 
-# --- BACKUP AUTO ---
+# --- TÂCHES AUTOMATIQUES ---
 @tasks.loop(hours=24)
 async def backup_automatique():
     await bot.wait_until_ready()
     user = await bot.fetch_user(ID_TON_COMPTE)
     if user and os.path.exists(DB_FILE):
-        await user.send("📦 Backup quotidien", file=discord.File(DB_FILE))
+        try:
+            await user.send("📦 **Backup Quotidien**", file=discord.File(DB_FILE))
+        except: pass
 
 @bot.event
 async def on_ready():
-    print(f"✅ Bot connecté : {bot.user}")
-    if not backup_automatique.is_running(): backup_automatique.start()
+    print(f"✅ Bot opérationnel : {bot.user}")
+    if not backup_automatique.is_running():
+        backup_automatique.start()
 
 @bot.event
 async def on_member_join(member):
     await lancer_questionnaire(member)
 
-# --- COMMANDES ADMIN (AJOUTER / RETIRER) ---
+# --- COMMANDES ADMIN ---
 @bot.command()
-@commands.has_permissions(administrator=False)
+@commands.has_permissions(administrator=True)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
-    """Ajoute manuellement un membre à un secteur"""
     secteur = secteur.strip().upper()
     if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
-    
     if secteur not in DEPARTEMENTS_VALIDES:
         return await ctx.send(f"❌ `{secteur}` n'est pas un département valide.")
-
     db = load_db()
     if secteur not in db: db[secteur] = []
     if membre.id not in db[secteur]:
         db[secteur].append(membre.id)
         save_db(db)
-        await ctx.send(f"✅ {membre.display_name} ajouté au secteur **{secteur}**.")
-    else:
-        await ctx.send("ℹ️ Déjà présent dans ce secteur.")
+        await ctx.send(f"✅ {membre.display_name} ajouté au secteur {secteur}.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def retirer_secteur(ctx, membre: discord.Member, secteur: str):
-    """Retire manuellement un membre d'un secteur"""
     secteur = secteur.strip().upper()
     if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
-    
     db = load_db()
     if secteur in db and membre.id in db[secteur]:
         db[secteur].remove(membre.id)
         save_db(db)
-        await ctx.send(f"🗑️ {membre.display_name} retiré du secteur **{secteur}**.")
-    else:
-        await ctx.send(f"⚠️ Membre introuvable dans le secteur {secteur}.")
+        await ctx.send(f"🗑️ {membre.display_name} retiré du secteur {secteur}.")
 
-# --- AUTRES COMMANDES ---
+# --- COMMANDE RENFORTS (AVEC VÉHICULES ET COOLDOWN) ---
+@bot.command()
+@commands.cooldown(1, 30, commands.BucketType.user)
+async def renforts(ctx):
+    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+    try:
+        await ctx.send("🚨 **Demande de renfort**\nN° Intervention ?")
+        n_inter = (await bot.wait_for("message", check=check, timeout=60)).content
+        
+        await ctx.send("🚒 Quels **véhicules** sont demandés ?")
+        vehicules = (await bot.wait_for("message", check=check, timeout=60)).content
+
+        await ctx.send("📍 Quel **Département** ? (ex: 75, 2B)")
+        secteur = (await bot.wait_for("message", check=check, timeout=60)).content.strip().upper()
+        if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
+
+        if secteur not in DEPARTEMENTS_VALIDES:
+            return await ctx.send("❌ Secteur invalide.")
+
+        db = load_db()
+        mentions = " ".join([f"<@{uid}>" for uid in db.get(secteur, [])])
+        
+        embed = discord.Embed(title="🚨 ALERTE RENFORTS 🚨", color=discord.Color.red())
+        embed.add_field(name="Secteur", value=f"📍 {secteur}", inline=True)
+        embed.add_field(name="N° Inter", value=n_inter, inline=True)
+        embed.add_field(name="Véhicules requis", value=vehicules, inline=False)
+        embed.set_footer(text=f"Demandé par {ctx.author.display_name}")
+        
+        await ctx.send(content=f"📢 {mentions if mentions else 'Aucun personnel enregistré'}", embed=embed)
+    except asyncio.TimeoutError:
+        await ctx.send("❌ Temps écoulé, commande annulée.")
+
+# --- GESTION BACKUP / VOIR ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def backup(ctx):
-    """Envoie une sauvegarde manuelle en MP"""
     if os.path.exists(DB_FILE):
         await ctx.author.send("📦 Sauvegarde manuelle :", file=discord.File(DB_FILE))
-        await ctx.send("✅ Backup envoyé en MP.")
+        await ctx.send("✅ Envoyé en MP.")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restore(ctx):
-    """Restaure la base depuis un fichier joint"""
     if ctx.message.attachments:
         await ctx.message.attachments[0].save(DB_FILE)
         await ctx.send("✅ Base restaurée.")
@@ -146,7 +170,6 @@ async def restore(ctx):
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def msgmp(ctx, membre: discord.Member):
-    """Relance le questionnaire manuellement"""
     await ctx.send(f"⏳ Envoi du questionnaire à {membre.mention}...")
     if await lancer_questionnaire(membre):
         await ctx.send(f"✅ Terminé pour {membre.display_name}.")
@@ -154,35 +177,23 @@ async def msgmp(ctx, membre: discord.Member):
         await ctx.send("❌ Échec (MP fermés).")
 
 @bot.command()
-@commands.cooldown(1, 30, commands.BucketType.user)
-async def renforts(ctx):
-    """Commande de demande de renforts"""
-    def check(m): return m.author == ctx.author and m.channel == ctx.channel
-    try:
-        await ctx.send("🚨 N° Intervention ?")
-        n_inter = (await bot.wait_for("message", check=check, timeout=60)).content
-        await ctx.send("📍 Département ?")
-        secteur = (await bot.wait_for("message", check=check, timeout=60)).content.strip().upper()
-        if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
-
-        db = load_db()
-        mentions = " ".join([f"<@{uid}>" for uid in db.get(secteur, [])])
-        embed = discord.Embed(title="🚨 ALERTE RENFORTS 🚨", color=discord.Color.red())
-        embed.add_field(name="Secteur", value=f"📍 {secteur}", inline=True)
-        embed.add_field(name="N° Inter", value=n_inter, inline=True)
-        await ctx.send(content=f"📢 {mentions if mentions else 'Aucun personnel'}", embed=embed)
-    except: pass
-
-@bot.command()
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def voir_base(ctx):
-    """Affiche le répertoire"""
     db = load_db()
-    if not db: return await ctx.send("Base vide.")
-    embed = discord.Embed(title="📋 Répertoire", color=discord.Color.gold())
+    if not db: return await ctx.send("La base est vide.")
+    embed = discord.Embed(title="📋 Répertoire Secteurs", color=discord.Color.gold())
     for s in sorted(db.keys()):
         m = ", ".join([f"<@{uid}>" for uid in db[s]])
-        if m: embed.add_field(name=f"📍 Secteur {s}", value=m, inline=False)
+        if m: embed.add_field(name=f"📍 {s}", value=m, inline=False)
     await ctx.send(embed=embed)
+
+# --- GESTION DES ERREURS ---
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandOnCooldown):
+        await ctx.send(f"⏳ Calme-toi ! Réessaie dans {error.retry_after:.1f}s.")
+    elif isinstance(error, commands.MissingPermissions):
+        await ctx.send("❌ Tu n'as pas la permission d'utiliser cette commande.")
 
 keep_alive()
 bot.run(TOKEN)
