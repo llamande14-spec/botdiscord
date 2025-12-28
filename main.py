@@ -23,11 +23,11 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 def load_db():
     if not os.path.exists(DB_FILE): return {}
     try:
-        with open(DB_FILE, "r") as f: return json.load(f)
+        with open(DB_FILE, "r", encoding='utf-8') as f: return json.load(f)
     except: return {}
 
 def save_db(data):
-    with open(DB_FILE, "w") as f:
+    with open(DB_FILE, "w", encoding='utf-8') as f:
         json.dump(data, f, indent=4)
 
 async def lancer_questionnaire(member):
@@ -94,8 +94,10 @@ async def on_ready():
 async def on_member_join(member):
     await lancer_questionnaire(member)
 
-# --- COMMANDES ADMIN ---
+# --- COMMANDES ADMIN (TOUTES SÉCURISÉES) ---
+
 @bot.command()
+@commands.has_permissions(administrator=True)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     secteur = secteur.strip().upper()
     if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
@@ -119,9 +121,9 @@ async def retirer_secteur(ctx, membre: discord.Member, secteur: str):
         save_db(db)
         await ctx.send(f"🗑️ {membre.display_name} retiré du secteur {secteur}.")
 
-# --- COMMANDE RENFORTS (AVEC VÉHICULES ET COOLDOWN) ---
 @bot.command()
-@commands.cooldown(1, 30, commands.BucketType.user)
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 10, commands.BucketType.user)
 async def renforts(ctx):
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
     try:
@@ -151,7 +153,6 @@ async def renforts(ctx):
     except asyncio.TimeoutError:
         await ctx.send("❌ Temps écoulé, commande annulée.")
 
-# --- GESTION BACKUP / VOIR ---
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def backup(ctx):
@@ -176,15 +177,40 @@ async def msgmp(ctx, membre: discord.Member):
         await ctx.send("❌ Échec (MP fermés).")
 
 @bot.command()
-@commands.cooldown(1, 10, commands.BucketType.user)
-async def voir_base(ctx):
+@commands.has_permissions(administrator=True)
+@commands.cooldown(1, 5, commands.BucketType.user)
+async def voir_base(ctx, secteur_demande: str = None):
     db = load_db()
-    if not db: return await ctx.send("La base est vide.")
-    embed = discord.Embed(title="📋 Répertoire Secteurs", color=discord.Color.gold())
+    if not db: 
+        return await ctx.send("La base est vide.")
+
+    # Si on demande un secteur précis
+    if secteur_demande:
+        secteur_demande = secteur_demande.strip().upper()
+        if secteur_demande.isdigit() and len(secteur_demande) == 1: secteur_demande = "0" + secteur_demande
+        
+        if secteur_demande in db:
+            mentions = ", ".join([f"<@{uid}>" for uid in db[secteur_demande]])
+            embed = discord.Embed(title=f"📍 Secteur {secteur_demande}", description=mentions, color=discord.Color.gold())
+            await ctx.send(embed=embed)
+        else:
+            await ctx.send(f"Aucun personnel dans le secteur `{secteur_demande}`.")
+        return
+
+    # Si on veut voir TOUTE la base (avec découpage si trop long)
+    message_complet = "**📋 Répertoire Complet des Secteurs :**\n\n"
+    
     for s in sorted(db.keys()):
-        m = ", ".join([f"<@{uid}>" for uid in db[s]])
-        if m: embed.add_field(name=f"📍 {s}", value=m, inline=False)
-    await ctx.send(embed=embed)
+        mentions = ", ".join([f"<@{uid}>" for uid in db[s]])
+        if mentions:
+            ligne = f"**{s}** : {mentions}\n"
+            if len(message_complet) + len(ligne) > 1900:
+                await ctx.send(message_complet)
+                message_complet = ""
+            message_complet += ligne
+            
+    if message_complet:
+        await ctx.send(message_complet)
 
 # --- GESTION DES ERREURS ---
 @bot.event
