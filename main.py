@@ -74,7 +74,7 @@ async def on_member_join(member):
 
 # --- COMMANDES ---
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=False)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     secteur = secteur.strip().upper()
     # Correction automatique du format (5 -> 05)
