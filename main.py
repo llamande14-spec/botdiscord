@@ -96,7 +96,7 @@ async def on_member_join(member):
 
 # --- COMMANDES ADMIN ---
 @bot.command()
-@commands.has_permissions(administrator=False)
+@commands.has_permissions(everyone=True)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     secteur = secteur.strip().upper()
     if secteur.isdigit() and len(secteur) == 1: secteur = "0" + secteur
