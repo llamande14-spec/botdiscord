@@ -93,7 +93,7 @@ async def on_member_join(member):
 
 # --- COMMANDES ADMIN (AJOUTER / RETIRER) ---
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=False)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     """Ajoute manuellement un membre à un secteur"""
     secteur = secteur.strip().upper()
