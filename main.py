@@ -152,14 +152,18 @@ class SecteurMenuView(SecureView):
                 pseudos = [i.guild.get_member(uid).display_name if i.guild.get_member(uid) else f"Inconnu({uid})" for uid in v]
                 lines.append(f"**{k}** : {', '.join(pseudos)}")
         
-        # Le bouton "Rendre Public" est ici, attaché au message du répertoire
         v_public = discord.ui.View(timeout=60)
         btn_pub = discord.ui.Button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="📢")
         
         async def make_pub(inter):
-            mentions_lines = [f"**{k}** : " + ", ".join([f"<@{u}>" for u in v]) for k, v in tries if v]
-            await inter.channel.send(f"📢 **RÉPERTOIRE DES SECTEURS**\n" + "\n".join(mentions_lines))
-            await inter.response.send_message("✅ Répertoire posté.", ephemeral=True)
+            # FIX : On récupère le display_name pour l'affichage public au lieu de l'ID brut
+            public_lines = []
+            for k, v in tries:
+                if v:
+                    pseudos_pub = [inter.guild.get_member(uid).display_name if inter.guild.get_member(uid) else f"Inconnu({uid})" for uid in v]
+                    public_lines.append(f"**{k}** : {', '.join(pseudos_pub)}")
+            await inter.channel.send(f"📢 **RÉPERTOIRE DES SECTEURS**\n" + "\n".join(public_lines))
+            await inter.response.send_message("✅ Répertoire posté avec les pseudos.", ephemeral=True)
         
         btn_pub.callback = make_pub; v_public.add_item(btn_pub)
         await i.response.send_message("📍 **Répertoire Privé :**\n" + ("\n".join(lines) if lines else "Vide"), view=v_public, ephemeral=True)
@@ -188,8 +192,10 @@ class SanctionGlobalView(SecureView):
     async def v_cas(self, i, b):
         modal = discord.ui.Modal(title="Casier"); u_in = discord.ui.TextInput(label="Pseudo/ID"); modal.add_item(u_in)
         async def on_sub(inter):
-            m = trouver_membre(inter.guild, u_in.value); uid = str(m.id) if m else u_in.value.strip()
-            db = load_db(SANCTIONS_FILE); emb = discord.Embed(title=f"Casier de {uid}", color=0xe74c3c)
+            m = trouver_membre(inter.guild, u_in.value)
+            uid = str(m.id) if m else u_in.value.strip() # Lit l'ID en texte pour correspondre au JSON
+            db = load_db(SANCTIONS_FILE)
+            emb = discord.Embed(title=f"Casier de {m.display_name if m else uid}", color=0xe74c3c)
             if uid in db:
                 for idx, s in enumerate(db[uid], 1): emb.add_field(name=f"#{idx} {s['type']}", value=f"📝 {s['raison']}\n📅 {s['date']}", inline=False)
             else: emb.description = "Vierge."
@@ -228,11 +234,37 @@ async def msgmp(ctx, membre: discord.Member):
     if await lancer_questionnaire(membre): await ctx.send(f"✅ Envoyé.")
     else: await ctx.send("❌ MP fermés.")
 
+@bot.command()
+async def renforts(ctx):
+    def check(m): return m.author == ctx.author and m.channel == ctx.channel
+    msgs = [ctx.message]
+    try:
+        q1 = await ctx.send("🚨 N° Inter ?"); msgs.append(q1)
+        r1 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r1)
+        q2 = await ctx.send("🚒 Véhicules ?"); msgs.append(q2)
+        r2 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r2)
+        q3 = await ctx.send("🏠 Adresse ?"); msgs.append(q3)
+        r3 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r3)
+        q4 = await ctx.send("📍 Département ?"); msgs.append(q4)
+        r4 = await bot.wait_for("message", check=check, timeout=60); msgs.append(r4)
+        s = r4.content.strip().upper().zfill(2); db = load_db(DB_FILE)
+        mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
+        emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
+        emb.add_field(name="📍 Secteur", value=s, inline=True)
+        emb.add_field(name="🔢 Inter", value=r1.content, inline=True)
+        emb.add_field(name="🏠 Adresse", value=r3.content, inline=False)
+        emb.add_field(name="🚒 Besoin", value=r2.content, inline=False)
+        try: await ctx.channel.delete_messages(msgs)
+        except: pass
+        await ctx.send(content=f"📢 {mentions}", embed=emb, view=RenfortView())
+    except: pass
+
+# --- TASKS & EVENTS ---
 @tasks.loop(hours=24)
 async def auto_backup():
     u = await bot.fetch_user(ID_TON_COMPTE)
     f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
-    if u and f: await u.send("📦 **Backup Automatique (24h)**", files=f)
+    if u and f: await u.send("📦 Backup Automatique (24h)", files=f)
 
 @bot.event
 async def on_member_join(member): await lancer_questionnaire(member)
