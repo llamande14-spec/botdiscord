@@ -41,8 +41,12 @@ async def lancer_questionnaire(member):
         for q in questions:
             await member.send(q)
             def check(m): return m.author == member and isinstance(m.channel, discord.DMChannel)
-            msg = await bot.wait_for("message", check=check, timeout=600.0)
-            reponses.append(msg.content)
+            try:
+                msg = await bot.wait_for("message", check=check, timeout=600.0)
+                reponses.append(msg.content)
+            except asyncio.TimeoutError:
+                await member.send("Temps écoulé. Recontacte un admin.")
+                return False
 
         secteur = reponses[1].strip().upper().zfill(2) if reponses[1].strip().isdigit() and len(reponses[1].strip()) == 1 else reponses[1].strip().upper()
         status = "❌ Secteur invalide"
@@ -63,7 +67,8 @@ async def lancer_questionnaire(member):
             emb.add_field(name="Statut Base", value=status, inline=False)
             await salon.send(embed=emb)
         await member.send(f"Merci ! {status}")
-    except: pass
+        return True
+    except: return False
 
 # --- MODALS (FENÊTRES) ---
 class DeleteSanctionModal(discord.ui.Modal):
@@ -232,6 +237,8 @@ async def on_ready():
 @bot.event
 async def on_member_join(member): await lancer_questionnaire(member)
 
+# --- COMMANDES ---
+
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def panel(ctx):
@@ -241,6 +248,29 @@ async def panel(ctx):
 @commands.has_permissions(administrator=True)
 async def sanction(ctx, membre: discord.Member):
     await ctx.send(embed=discord.Embed(title=f"⚖️ Modération : {membre.display_name}", color=0xffa500), view=PanelSanctionView(membre, ctx.author))
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def restore(ctx):
+    if ctx.message.attachments:
+        att = ctx.message.attachments[0]
+        # Vérifie si c'est l'un des deux fichiers attendus
+        if att.filename in [DB_FILE, SANCTIONS_FILE]:
+            await att.save(att.filename)
+            await ctx.send(f"✅ Fichier `{att.filename}` restauré avec succès.")
+        else:
+            await ctx.send("❌ Nom de fichier invalide. Envoyez `secteurs.json` ou `sanctions.json`.")
+    else:
+        await ctx.send("❌ Joignez le fichier JSON à restaurer.")
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def msgmp(ctx, membre: discord.Member):
+    await ctx.send(f"⏳ Envoi manuel du questionnaire à {membre.mention}...")
+    if await lancer_questionnaire(membre):
+        await ctx.send(f"✅ Questionnaire terminé pour {membre.display_name}.")
+    else:
+        await ctx.send("❌ Échec de l'envoi (MP fermés ou erreur).")
 
 keep_alive()
 bot.run(TOKEN)
