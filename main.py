@@ -127,7 +127,7 @@ async def renforts(ctx):
 
 # --- COMMANDES DE GESTION (ADMIN) ---
 @bot.command()
-@commands.has_permissions(administrator=True)
+@commands.has_permissions(administrator=False)
 async def ajouter_secteur(ctx, membre: discord.Member, secteur: str):
     secteur = secteur.strip().upper()
     if secteur not in DEPARTEMENTS_VALIDES:
