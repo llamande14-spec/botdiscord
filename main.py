@@ -8,7 +8,7 @@ from keep_alive import keep_alive
 # --- CONFIGURATION ---
 TOKEN = os.getenv("DISCORD_TOKEN")
 ID_SALON_REPONSES = 1433793778111484035
-ID_TON_COMPTE = 123456789012345678 # ⚠️ REMPLACE PAR TON ID DISCORD (Clic droit sur ton nom > Copier l'identifiant)
+ID_TON_COMPTE = 697919761312383057 # ⚠️ REMPLACE PAR TON ID DISCORD (Clic droit sur ton nom > Copier l'identifiant)
 DB_FILE = "secteurs.json"
 
 DEPARTEMENTS_VALIDES = [str(i).zfill(2) for i in range(1, 96)] + ["2A", "2B"]
