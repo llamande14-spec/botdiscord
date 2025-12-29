@@ -1,11 +1,4 @@
-import discord
-from discord.ext import commands, tasks
-import os
-import json
-import datetime
-import asyncio
-import random
-from keep_alive import keep_aliveimport discord
+
 from discord.ext import commands, tasks
 import os
 import json
