@@ -245,7 +245,6 @@ class SanctionGlobalView(SecureView):
     async def back(self, i, b): await i.response.edit_message(view=MainMenuView(self.ctx))
 
 class SanctionGlobalModal(discord.ui.Modal):
-    class SanctionGlobalModal(discord.ui.Modal):
     def __init__(self, type_s, admin):
         super().__init__(title=f"Action : {type_s}")
         self.type_s, self.admin = type_s, admin
@@ -264,7 +263,7 @@ class SanctionGlobalModal(discord.ui.Modal):
         date_now = datetime.datetime.now().strftime("%d/%m/%Y à %H:%M")
         raison = self.r_in.value
 
-        # 1. Sauvegarde dans la base de données (sanctions.json)
+        # 1. Sauvegarde dans la base de données
         db = load_db(SANCTIONS_FILE)
         uid = str(m.id)
         db.setdefault(uid, [])
@@ -276,7 +275,7 @@ class SanctionGlobalModal(discord.ui.Modal):
         })
         save_db(SANCTIONS_FILE, db)
 
-        # 2. Envoi du Message Privé à l'utilisateur
+        # 2. Envoi du Message Privé (MP)
         mp_status = "✅ MP Envoyé"
         try:
             emb_mp = discord.Embed(
