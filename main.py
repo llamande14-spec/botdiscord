@@ -86,14 +86,38 @@ class ValidationSecteurView(discord.ui.View):
     def __init__(self, member_id, secteur):
         super().__init__(timeout=None)
         self.member_id, self.secteur = member_id, secteur
+
     @discord.ui.button(label="Valider le secteur", style=discord.ButtonStyle.success, emoji="✅")
     async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator: return
-        db = load_db(DB_FILE); db.setdefault(self.secteur, [])
+        # Vérification des permissions
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Seuls les Administrateurs peuvent valider un secteur.", ephemeral=True)
+        
+        # 1. Mise à jour de la base de données
+        db = load_db(DB_FILE)
+        db.setdefault(self.secteur, [])
         if self.member_id not in db[self.secteur]:
-            db[self.secteur].append(self.member_id); save_db(DB_FILE, db)
-        button.disabled, button.label = True, "Secteur Validé"
+            db[self.secteur].append(self.member_id)
+            save_db(DB_FILE, db)
+        
+        # 2. Désactivation du bouton
+        button.disabled = True
+        button.label = "Secteur Validé"
         await interaction.response.edit_message(view=self)
+
+        # 3. Envoi du LOG de validation
+        log_channel = bot.get_channel(ID_SALON_LOGS)
+        if log_channel:
+            member = interaction.guild.get_member(self.member_id)
+            member_name = member.display_name if member else f"ID: {self.member_id}"
+            
+            emb_log = discord.Embed(title="📍 Secteur Validé", color=discord.Color.green())
+            emb_log.add_field(name="Administrateur", value=interaction.user.mention, inline=True)
+            emb_log.add_field(name="Membre validé", value=f"{member_name}", inline=True)
+            emb_log.add_field(name="Secteur attribué", value=f"**{self.secteur}**", inline=True)
+            emb_log.set_footer(text=f"Date : {datetime.datetime.now().strftime('%d/%m/%Y à %H:%M')}")
+            
+            await log_channel.send(embed=emb_log)
 
 async def lancer_questionnaire(member):
     try:
@@ -214,18 +238,65 @@ class SanctionGlobalView(SecureView):
     async def back(self, i, b): await i.response.edit_message(view=MainMenuView(self.ctx))
 
 class SanctionGlobalModal(discord.ui.Modal):
+    class SanctionGlobalModal(discord.ui.Modal):
     def __init__(self, type_s, admin):
-        super().__init__(title=f"Action : {type_s}"); self.type_s, self.admin = type_s, admin
-        self.u_in = discord.ui.TextInput(label="Pseudo, Mention ou ID"); self.add_item(self.u_in)
-        self.r_in = discord.ui.TextInput(label="Raison", style=discord.TextStyle.paragraph); self.add_item(self.r_in)
+        super().__init__(title=f"Action : {type_s}")
+        self.type_s, self.admin = type_s, admin
+        self.u_in = discord.ui.TextInput(label="Pseudo, Mention ou ID")
+        self.add_item(self.u_in)
+        self.r_in = discord.ui.TextInput(label="Raison", style=discord.TextStyle.paragraph)
+        self.add_item(self.r_in)
+
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=True)
         m = trouver_membre(interaction.guild, self.u_in.value)
-        if not m: return await interaction.followup.send("❌ Membre introuvable.", ephemeral=True)
-        db = load_db(SANCTIONS_FILE); uid = str(m.id); db.setdefault(uid, [])
-        db[uid].append({"type": self.type_s, "raison": self.r_in.value, "date": datetime.datetime.now().strftime("%d/%m/%Y"), "par": self.admin.display_name})
+        
+        if not m: 
+            return await interaction.followup.send("❌ Membre introuvable.", ephemeral=True)
+        
+        date_now = datetime.datetime.now().strftime("%d/%m/%Y à %H:%M")
+        raison = self.r_in.value
+
+        # 1. Sauvegarde dans la base de données (sanctions.json)
+        db = load_db(SANCTIONS_FILE)
+        uid = str(m.id)
+        db.setdefault(uid, [])
+        db[uid].append({
+            "type": self.type_s, 
+            "raison": raison, 
+            "date": date_now, 
+            "par": self.admin.display_name
+        })
         save_db(SANCTIONS_FILE, db)
-        await interaction.followup.send(f"✅ Sanction appliquée.", ephemeral=True)
+
+        # 2. Envoi du Message Privé à l'utilisateur
+        mp_status = "✅ MP Envoyé"
+        try:
+            emb_mp = discord.Embed(
+                title="⚠️ Notification de Sanction", 
+                description=f"Une sanction a été prise à votre encontre sur le serveur **{interaction.guild.name}**.",
+                color=0xe74c3c
+            )
+            emb_mp.add_field(name="Type de sanction", value=self.type_s, inline=True)
+            emb_mp.add_field(name="Raison", value=raison, inline=False)
+            emb_mp.set_footer(text=f"Le {date_now}")
+            await m.send(embed=emb_mp)
+        except:
+            mp_status = "❌ MP Fermés"
+
+        # 3. Envoi dans le salon des LOGS
+        log_channel = bot.get_channel(ID_SALON_LOGS)
+        if log_channel:
+            emb_log = discord.Embed(title="⚖️ Nouvelle Sanction", color=0xe74c3c)
+            emb_log.add_field(name="Utilisateur", value=f"{m.mention} (`{m.id}`)", inline=True)
+            emb_log.add_field(name="Modérateur", value=self.admin.mention, inline=True)
+            emb_log.add_field(name="Type", value=f"**{self.type_s}**", inline=True)
+            emb_log.add_field(name="Raison", value=raison, inline=False)
+            emb_log.add_field(name="Statut MP", value=mp_status, inline=True)
+            emb_log.set_footer(text=f"Date : {date_now}")
+            await log_channel.send(embed=emb_log)
+
+        await interaction.followup.send(f"✅ Sanction appliquée ({mp_status}).", ephemeral=True)
 
 # --- RENFORTS ---
 class RenfortView(discord.ui.View):
