@@ -268,6 +268,7 @@ class SanctionGlobalModal(discord.ui.Modal):
             emb_log.add_field(name="Utilisateur", value=m.mention, inline=True)
             emb_log.add_field(name="Modérateur", value=self.admin.mention, inline=True)
             emb_log.add_field(name="Type", value=self.type_s, inline=True)
+            emb_log.add_field(name="Raison", value=self.r_in.value, inline=True)
             emb_log.set_footer(text=f"Statut MP: {mp_status} | Date: {date_now}")
             await log_channel.send(embed=emb_log)
         await interaction.followup.send(f"✅ Sanction appliquée.", ephemeral=True)
