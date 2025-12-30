@@ -273,29 +273,77 @@ class SanctionGlobalModal(discord.ui.Modal):
             await log_channel.send(embed=emb_log)
         await interaction.followup.send(f"✅ Sanction appliquée.", ephemeral=True)
 
+import discord
+from discord.ext import commands
+
+# Configuration du bot
+intents = discord.Intents.default()
+intents.message_content = True  # Obligatoire pour lire le !renforts
+bot = commands.Bot(command_command_prefix="!", intents=intents)
+
 class RenfortView(discord.ui.View):
     def __init__(self, author_id):
         super().__init__(timeout=None)
         self.author_id = author_id
         self.intervenants = []
+
     @discord.ui.button(label="Je prends le renfort", emoji="🚑", style=discord.ButtonStyle.success)
     async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
         if interaction.user.mention not in self.intervenants:
             self.intervenants.append(interaction.user.mention)
             embed = interaction.message.embeds[0]
             val = ", ".join(self.intervenants)
-            if len(embed.fields) > 4: embed.set_field_at(4, name="👥 En route", value=val, inline=False)
-            else: embed.add_field(name="👥 En route", value=val, inline=False)
+            
+            if len(embed.fields) > 4: 
+                embed.set_field_at(4, name="👥 En route", value=val, inline=False)
+            else: 
+                embed.add_field(name="👥 En route", value=val, inline=False)
+            
             await interaction.response.edit_message(embed=embed, view=self)
+        else:
+            await interaction.response.send_message("Tu es déjà noté comme intervenant !", ephemeral=True)
+
     @discord.ui.button(label="Fin de besoin", emoji="🛑", style=discord.ButtonStyle.danger)
     async def end_need(self, interaction: discord.Interaction, button: discord.ui.Button):
+        # Vérification des permissions (Admin ou l'auteur de la demande)
         if not interaction.user.guild_permissions.administrator and interaction.user.id != self.author_id:
-            return await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
-        for item in self.children: item.disabled = True
+            return await interaction.response.send_message("❌ Seul l'auteur de la demande ou un admin peut clore ceci.", ephemeral=True)
+        
+        for item in self.children: 
+            item.disabled = True
+        
         embed = interaction.message.embeds[0]
         embed.color = discord.Color.greyple()
         embed.title = "🛑 RENFORTS TERMINÉS"
+        
         await interaction.response.edit_message(embed=embed, view=self)
+
+@bot.command()
+async def renforts(ctx):
+    # 1. Création de l'Embed
+    embed = discord.Embed(
+        title="🚑 DEMANDE DE RENFORTS",
+        description=f"Une unité demande de l'aide immédiatement !",
+        color=discord.Color.red()
+    )
+    embed.add_field(name="Demandé par", value=ctx.author.mention, inline=True)
+    embed.add_field(name="Salon", value=ctx.channel.mention, inline=True)
+    embed.set_footer(text="Cliquez sur le bouton pour répondre à l'appel.")
+
+    # 2. Envoi du message avec la View
+    view = RenfortView(author_id=ctx.author.id)
+    await ctx.send(content="@everyone", embed=embed, view=view)
+
+    # 3. SUPPRESSION DU MESSAGE !renforts (Ce que tu as demandé)
+    try:
+        await ctx.message.delete()
+    except discord.Forbidden:
+        print("Erreur : Le bot n'a pas la permission 'Gérer les messages'.")
+    except Exception as e:
+        print(f"Erreur lors de la suppression : {e}")
+
+# Lancer le bot
+# bot.run("TON_TOKEN_ICI")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
