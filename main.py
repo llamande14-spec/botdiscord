@@ -124,7 +124,7 @@ class ValidationSecteurView(discord.ui.View):
             await log_c.send(embed=emb)
 
 # --- FONCTION QUESTIONNAIRE ---
-async lancer_questionnaire(member):
+async def lancer_questionnaire(member):
     try:
         await member.send(f"Salut {member.name} ! Bienvenue 🎉")
         qs = ["Pseudo AS ?", "Secteur (ex: 75) ?", "Motivation ?", "Autres jeux ?"]
@@ -212,7 +212,6 @@ class SanctionGlobalModal(discord.ui.Modal):
         db = load_db(SANCTIONS_FILE); uid = str(m.id); db.setdefault(uid, [])
         db[uid].append({"type": self.type_s, "raison": self.r_in.value, "date": str(datetime.datetime.now()), "par": self.admin.display_name})
         save_db(SANCTIONS_FILE, db)
-        # Log et MP (comme dans ton code original)
         try: await m.send(f"⚠️ Sanction sur {interaction.guild.name} : {self.type_s}\nRaison : {self.r_in.value}")
         except: pass
         await interaction.response.send_message(f"✅ Appliquée.", ephemeral=True)
@@ -258,7 +257,7 @@ async def restore(ctx):
                 await att.save(att.filename)
                 await ctx.send(f"✅ {att.filename} restauré.")
 
-# --- TASKS ET EVENTS (RÉINTÉGRÉS) ---
+# --- TASKS ET EVENTS ---
 
 @tasks.loop(hours=24)
 async def auto_backup():
