@@ -234,20 +234,31 @@ async def renforts(ctx):
             msg = await bot.wait_for("message", check=check, timeout=60)
             reps.append(msg.content)
             await t.delete(); await msg.delete()
+        
         s = est_secteur_valide(reps[4])
         if not s: return await ctx.send("❌ Secteur invalide.")
+        
         db = load_db(DB_FILE)
         mentions = " ".join([f"<@{uid}>" for uid in db.get(s, [])])
+        
+        # Création de l'Embed
         emb = discord.Embed(title="🚨 ALERTE RENFORTS", color=discord.Color.red())
+        emb.add_field(name="👤 Demandeur", value=ctx.author.mention, inline=True) # <-- LIGNE AJOUTÉE
         emb.add_field(name="📍 Secteur", value=s, inline=True)
-        emb.add_field(name="☎️ Motif", value=reps[1], inline=True)
         emb.add_field(name="🔢 Inter", value=reps[0], inline=True)
+        emb.add_field(name="☎️ Motif", value=reps[1], inline=False)
         emb.add_field(name="🏠 Adresse", value=reps[3], inline=False)
         emb.add_field(name="🚒 Besoin", value=reps[2], inline=False)
+        
+        # Optionnel : Tu peux aussi mettre le nom en bas de l'embed
+        emb.set_footer(text=f"Demande effectuée par {ctx.author.display_name}")
+
         await ctx.send(content=f"📢 {mentions}" if mentions else "@everyone", embed=emb, view=RenfortView(ctx.author.id))
         await ctx.message.delete()
-    except: pass
-
+    except Exception as e: 
+        print(f"Erreur : {e}") # Utile pour débugger si ça plante
+        pass
+        
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def restore(ctx):
