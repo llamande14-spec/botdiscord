@@ -18,7 +18,16 @@ SANCTIONS_FILE = "sanctions.json"
 intents = discord.Intents.default()
 intents.members = True
 intents.message_content = True
-bot = commands.Bot(command_prefix="!", intents=intents)
+
+class MyBot(commands.Bot):
+    def __init__(self):
+        super().__init__(command_prefix="!", intents=intents)
+
+    async def setup_hook(self):
+        # Enregistre la vue des renforts pour qu'elle soit immortelle
+        self.add_view(PersistentRenfortView())
+
+bot = MyBot()
 
 # --- GESTION DES FICHIERS ---
 def load_db(file):
@@ -56,7 +65,52 @@ def trier_secteurs(db):
         return (1, k)
     return sorted(db.items(), key=key_sort)
 
-# --- VIEWS ---
+# --- VIEWS PERSISTANTES (RENFORTS) ---
+
+class PersistentRenfortView(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+
+    @discord.ui.button(label="Je prends le renfort", emoji="🚑", style=discord.ButtonStyle.success, custom_id="persistent_take_renfort")
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
+        embed = interaction.message.embeds[0]
+        current_intervenants = ""
+        field_index = -1
+        for idx, field in enumerate(embed.fields):
+            if field.name == "👥 En route":
+                field_index = idx
+                current_intervenants = field.value
+                break
+        
+        if interaction.user.mention in current_intervenants:
+            return await interaction.response.send_message("Tu es déjà noté !", ephemeral=True)
+
+        new_val = f"{current_intervenants}, {interaction.user.mention}" if current_intervenants else interaction.user.mention
+        
+        if field_index != -1:
+            embed.set_field_at(field_index, name="👥 En route", value=new_val, inline=False)
+        else:
+            embed.add_field(name="👥 En route", value=new_val, inline=False)
+            
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="Fin de besoin", emoji="🛑", style=discord.ButtonStyle.danger, custom_id="persistent_end_renfort")
+    async def end_need(self, interaction: discord.Interaction, button: discord.ui.Button):
+        is_author = False
+        if interaction.message.embeds[0].footer.text:
+            if interaction.user.display_name in interaction.message.embeds[0].footer.text:
+                is_author = True
+
+        if not interaction.user.guild_permissions.administrator and not is_author:
+            return await interaction.response.send_message("❌ Seul l'auteur ou un Admin peut finir cela.", ephemeral=True)
+        
+        for item in self.children: item.disabled = True
+        embed = interaction.message.embeds[0]
+        embed.color = discord.Color.greyple()
+        embed.title = "🛑 RENFORTS TERMINÉS"
+        await interaction.response.edit_message(embed=embed, view=self)
+
+# --- PANELS ADMIN & MODÉRATION ---
 
 class SecureView(discord.ui.View):
     def __init__(self, ctx, timeout=60):
@@ -68,73 +122,16 @@ class SecureView(discord.ui.View):
             return False
         return True
 
-class RenfortView(discord.ui.View):
-    def __init__(self, author_id):
-        super().__init__(timeout=None)
-        self.author_id = author_id
-        self.intervenants = []
-
-    @discord.ui.button(label="Je prends le renfort", emoji="🚑", style=discord.ButtonStyle.success)
-    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if interaction.user.mention not in self.intervenants:
-            self.intervenants.append(interaction.user.mention)
-            embed = interaction.message.embeds[0]
-            val = ", ".join(self.intervenants)
-            if len(embed.fields) > 6: # Ajusté car on a rajouté le demandeur
-                embed.set_field_at(6, name="👥 En route", value=val, inline=False)
-            else:
-                embed.add_field(name="👥 En route", value=val, inline=False)
-            await interaction.response.edit_message(embed=embed, view=self)
-        else:
-            await interaction.response.send_message("Tu es déjà noté !", ephemeral=True)
-
-    @discord.ui.button(label="Fin de besoin", emoji="🛑", style=discord.ButtonStyle.danger)
-    async def end_need(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator and interaction.user.id != self.author_id:
-            return await interaction.response.send_message("❌ Permission refusée.", ephemeral=True)
-        for item in self.children: item.disabled = True
-        embed = interaction.message.embeds[0]
-        embed.color = discord.Color.greyple()
-        embed.title = "🛑 RENFORTS TERMINÉS"
-        await interaction.response.edit_message(embed=embed, view=self)
-
-class ValidationSecteurView(discord.ui.View):
-    def __init__(self, member_id, secteur):
-        super().__init__(timeout=None)
-        self.member_id, self.secteur = member_id, secteur
-        self.is_public = False
-
-    @discord.ui.button(label="Valider le secteur", style=discord.ButtonStyle.success, emoji="✅")
-    async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin requis.", ephemeral=True)
-        db = load_db(DB_FILE)
-        db.setdefault(self.secteur, [])
-        if self.member_id not in db[self.secteur]:
-            db[self.secteur].append(self.member_id)
-            save_db(DB_FILE, db)
-        button.disabled, button.label = True, "Secteur Validé"
-        await interaction.response.edit_message(view=self)
-        
-        log_c = bot.get_channel(ID_SALON_LOGS)
-        if log_c:
-            m = interaction.guild.get_member(self.member_id)
-            emb = discord.Embed(title="📍 Secteur Validé", color=discord.Color.green())
-            emb.add_field(name="Admin", value=interaction.user.mention)
-            emb.add_field(name="Membre", value=m.display_name if m else self.member_id)
-            emb.add_field(name="Secteur", value=self.secteur)
-            await log_c.send(embed=emb)
-
-    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="🌍")
-    async def toggle_public(self, interaction: discord.Interaction, button: discord.ui.Button):
-        if not interaction.user.guild_permissions.administrator:
-            return await interaction.response.send_message("❌ Admin requis.", ephemeral=True)
-        self.is_public = not self.is_public
-        button.label = "Rendre Privé" if self.is_public else "Rendre Public"
-        button.style = discord.ButtonStyle.secondary if self.is_public else discord.ButtonStyle.primary
-        await interaction.response.edit_message(view=self)
-        msg = "Cette fiche est maintenant **Publique**." if self.is_public else "Cette fiche est redevenue **Privée**."
-        await interaction.followup.send(msg, ephemeral=True)
+class MainMenuView(SecureView):
+    @discord.ui.button(label="Secteurs", emoji="📍", style=discord.ButtonStyle.primary)
+    async def b1(self, i, b): await i.response.edit_message(view=SecteurMenuView(self.ctx))
+    @discord.ui.button(label="Sanctions", emoji="⚖️", style=discord.ButtonStyle.danger)
+    async def b2(self, i, b): await i.response.edit_message(view=SanctionGlobalView(self.ctx))
+    @discord.ui.button(label="Sauvegarde", emoji="📦", style=discord.ButtonStyle.success)
+    async def b3(self, i, b):
+        f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
+        if f: await i.user.send("📦 Backup manuelle :", files=f)
+        await i.response.send_message("✅ Backup envoyé en MP.", ephemeral=True)
 
 class SecteurMenuView(SecureView):
     @discord.ui.button(label="Ajouter", style=discord.ButtonStyle.success)
@@ -215,12 +212,64 @@ class SanctionGlobalModal(discord.ui.Modal):
     async def on_submit(self, interaction: discord.Interaction):
         m = trouver_membre(interaction.guild, self.u_in.value)
         if not m: return await interaction.response.send_message("❌ Inconnu.", ephemeral=True)
+        
+        # Sauvegarde en Base de Données
         db = load_db(SANCTIONS_FILE); uid = str(m.id); db.setdefault(uid, [])
         db[uid].append({"type": self.type_s, "raison": self.r_in.value, "date": str(datetime.datetime.now()), "par": self.admin.display_name})
         save_db(SANCTIONS_FILE, db)
-        try: await m.send(f"⚠️ Sanction sur {interaction.guild.name} : {self.type_s}\nRaison : {self.r_in.value}")
+        
+        # Envoi Log dans le salon spécial
+        log_c = bot.get_channel(ID_SALON_LOGS)
+        if log_c:
+            emb_log = discord.Embed(title="⚖️ Nouvelle Sanction", color=discord.Color.orange())
+            emb_log.add_field(name="Cible", value=f"{m.mention} ({m.id})", inline=True)
+            emb_log.add_field(name="Admin", value=self.admin.mention, inline=True)
+            emb_log.add_field(name="Type", value=f"**{self.type_s}**", inline=True)
+            emb_log.add_field(name="Raison", value=self.r_in.value, inline=False)
+            emb_log.set_timestamp()
+            await log_c.send(embed=emb_log)
+
+        # DM au membre
+        try: await m.send(f"⚠️ Sanction sur {interaction.guild.name} : **{self.type_s}**\nRaison : {self.r_in.value}")
         except: pass
-        await interaction.response.send_message(f"✅ Appliquée.", ephemeral=True)
+        
+        await interaction.response.send_message(f"✅ Action {self.type_s} appliquée sur {m.display_name}.", ephemeral=True)
+
+class ValidationSecteurView(discord.ui.View):
+    def __init__(self, member_id, secteur):
+        super().__init__(timeout=None)
+        self.member_id, self.secteur = member_id, secteur
+        self.is_public = False
+
+    @discord.ui.button(label="Valider le secteur", style=discord.ButtonStyle.success, emoji="✅")
+    async def validate(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin requis.", ephemeral=True)
+        db = load_db(DB_FILE)
+        db.setdefault(self.secteur, [])
+        if self.member_id not in db[self.secteur]:
+            db[self.secteur].append(self.member_id)
+            save_db(DB_FILE, db)
+        button.disabled, button.label = True, "Secteur Validé"
+        await interaction.response.edit_message(view=self)
+        
+        log_c = bot.get_channel(ID_SALON_LOGS)
+        if log_c:
+            m = interaction.guild.get_member(self.member_id)
+            emb = discord.Embed(title="📍 Secteur Validé", color=discord.Color.green())
+            emb.add_field(name="Admin", value=interaction.user.mention)
+            emb.add_field(name="Membre", value=m.display_name if m else self.member_id)
+            emb.add_field(name="Secteur", value=self.secteur)
+            await log_c.send(embed=emb)
+
+    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.primary, emoji="🌍")
+    async def toggle_public(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if not interaction.user.guild_permissions.administrator:
+            return await interaction.response.send_message("❌ Admin requis.", ephemeral=True)
+        self.is_public = not self.is_public
+        button.label = "Rendre Privé" if self.is_public else "Rendre Public"
+        button.style = discord.ButtonStyle.secondary if self.is_public else discord.ButtonStyle.primary
+        await interaction.response.edit_message(view=self)
 
 # --- COMMANDES ---
 
@@ -254,24 +303,15 @@ async def renforts(ctx):
         emb.add_field(name="☎️ Motif", value=reps[1], inline=False)
         emb.add_field(name="🏠 Adresse", value=reps[3], inline=False)
         emb.add_field(name="🚒 Besoin", value=reps[2], inline=False)
-        emb.set_footer(text=f"Demande effectuée par {ctx.author.display_name}")
+        emb.set_footer(text=f"Demande de {ctx.author.display_name}")
 
-        await ctx.send(content=f"📢 {mentions}" if mentions else "@everyone", embed=emb, view=RenfortView(ctx.author.id))
+        await ctx.send(content=f"📢 {mentions}" if mentions else "@everyone", embed=emb, view=PersistentRenfortView())
         await ctx.message.delete()
     except Exception as e: 
         print(f"Erreur : {e}")
         pass
 
-@bot.command()
-@commands.has_permissions(administrator=True)
-async def restore(ctx):
-    if ctx.message.attachments:
-        for att in ctx.message.attachments:
-            if att.filename in [DB_FILE, SANCTIONS_FILE]:
-                await att.save(att.filename)
-                await ctx.send(f"✅ {att.filename} restauré.")
-
-# --- TASKS ET EVENTS ---
+# --- TASKS & EVENTS ---
 
 @tasks.loop(hours=24)
 async def auto_backup():
@@ -287,16 +327,10 @@ async def dynamic_status():
     await bot.change_presence(activity=random.choice(st))
 
 @bot.event
-async def on_member_join(member): await lancer_questionnaire(member)
-
-@bot.event
 async def on_ready():
-    print(f"✅ {bot.user} OK")
+    print(f"✅ {bot.user} Prêt - Logs de sanctions activés.")
     if not auto_backup.is_running(): auto_backup.start()
     if not dynamic_status.is_running(): dynamic_status.start()
-    u = await bot.fetch_user(ID_TON_COMPTE)
-    f = [discord.File(fi) for fi in [DB_FILE, SANCTIONS_FILE] if os.path.exists(fi)]
-    if u and f: await u.send("🚀 **Redémarrage**", files=f)
 
 keep_alive()
 bot.run(TOKEN)
