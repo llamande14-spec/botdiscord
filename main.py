@@ -39,6 +39,44 @@ def sort_secteurs(secteur_key):
     if s == "2B": return -1
     return int(s) if s.isdigit() else 999
 
+# --- MODALS DE BIENVENUE ---
+class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
+    pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Matthieu-bo4")
+    secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 29, 2A", min_length=1, max_length=2)
+    motivations = discord.ui.TextInput(label="T'es motivations ?", style=discord.TextStyle.paragraph)
+    autres_jeux = discord.ui.TextInput(label="Joue tu à d'autres jeux ?", required=False)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        sec = self.secteur.value.upper().zfill(2) if self.secteur.value.isdigit() else self.secteur.value.upper()
+        if not is_valid_secteur(sec):
+            return await interaction.response.send_message("Secteur invalide. Recommencez via !msgmp", ephemeral=True)
+        
+        embed = discord.Embed(title="📝 Nouvelle Fiche de Bienvenue", color=discord.Color.blue())
+        embed.add_field(name="Utilisateur", value=interaction.user.mention)
+        embed.add_field(name="Pseudo AS", value=self.pseudo.value)
+        embed.add_field(name="Secteur souhaité", value=sec)
+        embed.add_field(name="Motivations", value=self.motivations.value, inline=False)
+        embed.add_field(name="Autres jeux", value=self.autres_jeux.value or "Aucun")
+
+        class AcceptView(discord.ui.View):
+            @discord.ui.button(label="Accepter le secteurs", style=discord.ButtonStyle.success)
+            async def accept(self, inter, btn):
+                db = load_db("secteurs")
+                if sec not in db: db[sec] = []
+                if interaction.user.id not in db[sec]: db[sec].append(interaction.user.id)
+                save_db("secteurs", db)
+                
+                log_chan = bot.get_channel(CHAN_LOGS)
+                if log_chan:
+                    await log_chan.send(f"✅ **Secteur validé** : {interaction.user.mention} assigné au **{sec}** par {inter.user.mention}")
+                await inter.response.send_message(f"Secteur {sec} enregistré !", ephemeral=True)
+                self.stop()
+
+        recap_chan = bot.get_channel(CHAN_FICHE_RECAP)
+        if recap_chan:
+            await recap_chan.send(embed=embed, view=AcceptView())
+        await interaction.response.send_message("Merci ! Ta fiche a été envoyée au staff.", ephemeral=True)
+
 # --- SYSTÈME DE RÉPERTOIRE À PAGES ---
 class RepertoirePaginator(discord.ui.View):
     def __init__(self, pages):
@@ -70,7 +108,7 @@ class RepertoirePaginator(discord.ui.View):
     async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
         await interaction.response.edit_message(content="📂 **Secteurs**", embed=None, view=SecteurPanel())
 
-# --- MODALS ---
+# --- MODALS SANCTION ---
 class GenericSanctionModal(discord.ui.Modal):
     def __init__(self, action):
         super().__init__(title=f"Sanction : {action}")
@@ -82,17 +120,45 @@ class GenericSanctionModal(discord.ui.Modal):
         try:
             target_id = int(self.user_id.value)
             member = i.guild.get_member(target_id)
+            
+            # Action réelle (Mute/Kick/Ban)
             if member:
-                if "MUTE" in self.action or "EXCLURE" in self.action:
-                    mins = 10 if "10M" in self.action else (60 if "1H" in self.action else 1440)
-                    await member.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=mins), reason=self.reason.value)
-                elif self.action == "KICK": await member.kick(reason=self.reason.value)
-                elif self.action == "BAN": await member.ban(reason=self.reason.value)
+                try:
+                    if "MUTE" in self.action or "EXCLURE" in self.action:
+                        mins = 10 if "10M" in self.action else (60 if "1H" in self.action else 1440)
+                        await member.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=mins), reason=self.reason.value)
+                    elif self.action == "KICK": await member.kick(reason=self.reason.value)
+                    elif self.action == "BAN": await member.ban(reason=self.reason.value)
+                    
+                    # Message MP à l'utilisateur
+                    embed_mp = discord.Embed(title=f"⚠️ Sanction reçue : {self.action}", color=discord.Color.red())
+                    embed_mp.add_field(name="Motif", value=self.reason.value)
+                    await member.send(embed=embed_mp)
+                except Exception as e:
+                    print(f"Erreur modération : {e}")
+
+            # Logs JSON
             db = load_db("sanctions")
             uid = str(target_id)
             if uid not in db: db[uid] = []
-            db[uid].append({"type": self.action, "reason": self.reason.value, "staff": str(i.user), "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")})
+            db[uid].append({
+                "type": self.action, 
+                "reason": self.reason.value, 
+                "staff": str(i.user), 
+                "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            })
             save_db("sanctions", db)
+
+            # Logs Salon
+            log_chan = bot.get_channel(CHAN_LOGS)
+            if log_chan:
+                embed_log = discord.Embed(title="🔨 Sanction Appliquée", color=discord.Color.dark_red())
+                embed_log.add_field(name="Type", value=self.action)
+                embed_log.add_field(name="Cible", value=f"<@{target_id}>")
+                embed_log.add_field(name="Staff", value=i.user.mention)
+                embed_log.add_field(name="Raison", value=self.reason.value)
+                await log_chan.send(embed=embed_log)
+
             await i.response.send_message(f"✅ Sanction {self.action} enregistrée.", ephemeral=True)
         except Exception as e: await i.response.send_message(f"Erreur : {e}", ephemeral=True)
 
@@ -118,7 +184,9 @@ class SecteurPanel(discord.ui.View):
                 db = load_db("secteurs")
                 sec = self.s.value.upper().zfill(2) if self.s.value.isdigit() else self.s.value.upper()
                 if sec not in db: db[sec] = []
-                db[sec].append(int(self.u.value)); save_db("secteurs", db)
+                u_id = int(self.u.value)
+                if u_id not in db[sec]: db[sec].append(u_id)
+                save_db("secteurs", db)
                 await it.response.send_message("Ajouté !", ephemeral=True)
         await i.response.send_modal(AddM())
 
@@ -128,11 +196,12 @@ class SecteurPanel(discord.ui.View):
             u, s = discord.ui.TextInput(label="ID Member"), discord.ui.TextInput(label="Secteur")
             async def on_submit(self, it):
                 db = load_db("secteurs")
-                s = self.s.value.upper()
-                if s in db and int(self.u.value) in db[s]:
-                    db[s].remove(int(self.u.value))
-                    if not db[s]: del db[s]
-                    save_db("secteurs", db); await it.response.send_message("Retiré !", ephemeral=True)
+                sec = self.s.value.upper()
+                if sec in db and int(self.u.value) in db[sec]:
+                    db[sec].remove(int(self.u.value))
+                    if not db[sec]: del db[sec]
+                    save_db("secteurs", db)
+                    await it.response.send_message("Retiré !", ephemeral=True)
                 else: await it.response.send_message("Pas trouvé.", ephemeral=True)
         await i.response.send_modal(RemM())
 
@@ -156,6 +225,7 @@ class SecteurPanel(discord.ui.View):
     async def back(self, i, b): await i.response.edit_message(content="🛠 Admin", embed=None, view=MainPanel())
 
 class SanctionPanel(discord.ui.View):
+    def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Sommation", row=0)
     async def b1(self, i, b): await i.response.send_modal(GenericSanctionModal("SOMMATION"))
     @discord.ui.button(label="Rappel", row=0)
@@ -208,6 +278,25 @@ async def on_ready():
 async def auto_backup():
     u = await bot.fetch_user(MY_ID)
     if u: await u.send("📦 Backup 24h.", files=[discord.File(f) for f in ["secteurs.json", "sanctions.json"] if os.path.exists(f)])
+
+@bot.event
+async def on_member_join(member):
+    class Start(discord.ui.View):
+        @discord.ui.button(label="Démarrer le questionnaire", style=discord.ButtonStyle.green)
+        async def go(self, i, b): await i.response.send_modal(WelcomeModal())
+    try:
+        await member.send(f"Bienvenue sur {member.guild.name} ! Merci de remplir le questionnaire :", view=Start())
+    except:
+        pass
+
+@bot.command()
+@commands.has_permissions(administrator=True)
+async def msgmp(ctx, member: discord.Member):
+    class Start(discord.ui.View):
+        @discord.ui.button(label="Démarrer le questionnaire", style=discord.ButtonStyle.green)
+        async def go(self, i, b): await i.response.send_modal(WelcomeModal())
+    await member.send("Lancement manuel du questionnaire de bienvenue :", view=Start())
+    await ctx.send(f"Questionnaire envoyé à {member.mention}")
 
 @bot.command()
 @commands.has_permissions(administrator=True)
