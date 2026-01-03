@@ -41,8 +41,8 @@ def sort_secteurs(secteur_key):
 
 # --- MODALS DE BIENVENUE ---
 class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
-    pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Matthieu-bo4")
-    secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 29, 2A", min_length=1, max_length=2)
+    pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Louis_lmd")
+    secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 56, 2A", min_length=1, max_length=2)
     motivations = discord.ui.TextInput(label="T'es motivations ?", style=discord.TextStyle.paragraph)
     autres_jeux = discord.ui.TextInput(label="Joue tu à d'autres jeux ?", required=False)
 
@@ -52,11 +52,11 @@ class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
             return await interaction.response.send_message("Secteur invalide. Recommencez via !msgmp", ephemeral=True)
         
         embed = discord.Embed(title="📝 Nouvelle Fiche de Bienvenue", color=discord.Color.blue())
-        embed.add_field(name="Utilisateur", value=interaction.user.mention)
-        embed.add_field(name="Pseudo AS", value=self.pseudo.value)
-        embed.add_field(name="Secteur souhaité", value=sec)
-        embed.add_field(name="Motivations", value=self.motivations.value, inline=False)
-        embed.add_field(name="Autres jeux", value=self.autres_jeux.value or "Aucun")
+        embed.add_field(name="👥 Utilisateur", value=interaction.user.mention)
+        embed.add_field(name="👤 Pseudo AS", value=self.pseudo.value)
+        embed.add_field(name="🗺️ Secteur souhaité", value=sec)
+        embed.add_field(name="📝 Motivations", value=self.motivations.value, inline=False)
+        embed.add_field(name="🎮 Autres jeux", value=self.autres_jeux.value or "Aucun")
 
         class AcceptView(discord.ui.View):
             @discord.ui.button(label="Accepter le secteurs", style=discord.ButtonStyle.success)
