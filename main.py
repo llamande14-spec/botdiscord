@@ -9,7 +9,8 @@ from keep_alive import keep_alive
 
 # --- CONFIGURATION ---
 TOKEN = os.environ.get("DISCORD_TOKEN")
-MY_ID = 697919761312383057 
+# Correction de l'espace insécable potentiel à la fin de l'ID
+MY_ID = 697919761312383057
 CHAN_FICHE_RECAP = 1433793778111484035
 CHAN_LOGS = 1439697621156495543
 CHAN_RENFORTS = 1454875150263521280
@@ -39,7 +40,38 @@ def sort_secteurs(secteur_key):
     if s == "2B": return -1
     return int(s) if s.isdigit() else 999
 
-# --- MODALS DE BIENVENUE ---
+# --- SYSTÈME DE RÉPERTOIRE À PAGES ---
+class RepertoirePaginator(discord.ui.View):
+    def __init__(self, pages):
+        super().__init__(timeout=None)
+        self.pages = pages
+        self.current_page = 0
+
+    async def update_view(self, interaction):
+        embed = discord.Embed(title="📖 RÉPERTOIRE DES SECTEURS", description=self.pages[self.current_page], color=discord.Color.blue())
+        embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.grey)
+    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = (self.current_page - 1) % len(self.pages)
+        await self.update_view(interaction)
+
+    @discord.ui.button(label="➡️ Suivant", style=discord.ButtonStyle.grey)
+    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = (self.current_page + 1) % len(self.pages)
+        await self.update_view(interaction)
+
+    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.danger)
+    async def public(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.channel.send(f"📖 **Répertoire Public (Page {self.current_page + 1})** :\n{self.pages[self.current_page]}")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Retour", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="📂 **Secteurs**", embed=None, view=SecteurPanel())
+
+# --- MODALS ---
 class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
     pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Matthieu-bo4")
     secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 29, 2A", min_length=1, max_length=2)
@@ -77,44 +109,14 @@ class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
             await recap_chan.send(embed=embed, view=AcceptView())
         await interaction.response.send_message("Merci ! Ta fiche a été envoyée au staff.", ephemeral=True)
 
-# --- SYSTÈME DE RÉPERTOIRE À PAGES ---
-class RepertoirePaginator(discord.ui.View):
-    def __init__(self, pages):
-        super().__init__(timeout=None)
-        self.pages = pages
-        self.current_page = 0
-
-    async def update_view(self, interaction):
-        embed = discord.Embed(title="📖 RÉPERTOIRE DES SECTEURS", description=self.pages[self.current_page], color=discord.Color.blue())
-        embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.grey)
-    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = (self.current_page - 1) % len(self.pages)
-        await self.update_view(interaction)
-
-    @discord.ui.button(label="➡️ Suivant", style=discord.ButtonStyle.grey)
-    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = (self.current_page + 1) % len(self.pages)
-        await self.update_view(interaction)
-
-    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.danger)
-    async def public(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.channel.send(f"📖 **Répertoire Public (Page {self.current_page + 1})** :\n{self.pages[self.current_page]}")
-        await interaction.response.defer()
-
-    @discord.ui.button(label="Retour", style=discord.ButtonStyle.secondary)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="📂 **Secteurs**", embed=None, view=SecteurPanel())
-
-# --- MODALS SANCTION ---
 class GenericSanctionModal(discord.ui.Modal):
     def __init__(self, action):
-        super().__init__(title=f"Sanction : {action}")
+        # Sécurité : On coupe le titre si trop long (max 45 chars pour Discord)
+        super().__init__(title=f"Sanction : {action}"[:45])
         self.action = action
-        self.user_id = discord.ui.TextInput(label="ID du Membre")
-        self.reason = discord.ui.TextInput(label="Motif", style=discord.TextStyle.paragraph)
+        # Labels courts et précis pour éviter l'erreur 400
+        self.user_id = discord.ui.TextInput(label="ID du Membre", min_length=15, max_length=20)
+        self.reason = discord.ui.TextInput(label="Motif", style=discord.TextStyle.paragraph, max_length=1000)
 
     async def on_submit(self, i: discord.Interaction):
         try:
@@ -135,18 +137,13 @@ class GenericSanctionModal(discord.ui.Modal):
                     embed_mp.add_field(name="Motif", value=self.reason.value)
                     await member.send(embed=embed_mp)
                 except Exception as e:
-                    print(f"Erreur modération : {e}")
+                    print(f"Erreur modération (MP/Action) : {e}")
 
             # Logs JSON
             db = load_db("sanctions")
             uid = str(target_id)
             if uid not in db: db[uid] = []
-            db[uid].append({
-                "type": self.action, 
-                "reason": self.reason.value, 
-                "staff": str(i.user), 
-                "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
-            })
+            db[uid].append({"type": self.action, "reason": self.reason.value, "staff": str(i.user), "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")})
             save_db("sanctions", db)
 
             # Logs Salon
@@ -226,22 +223,31 @@ class SecteurPanel(discord.ui.View):
 
 class SanctionPanel(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
+    
     @discord.ui.button(label="Sommation", row=0)
     async def b1(self, i, b): await i.response.send_modal(GenericSanctionModal("SOMMATION"))
+    
     @discord.ui.button(label="Rappel", row=0)
     async def b2(self, i, b): await i.response.send_modal(GenericSanctionModal("RAPPEL"))
+    
     @discord.ui.button(label="Avertissement", row=0)
     async def b3(self, i, b): await i.response.send_modal(GenericSanctionModal("AVERTISSEMENT"))
+    
     @discord.ui.button(label="Mute 10m", row=1)
     async def b4(self, i, b): await i.response.send_modal(GenericSanctionModal("MUTE 10M"))
+    
     @discord.ui.button(label="Mute 1h", row=1)
     async def b5(self, i, b): await i.response.send_modal(GenericSanctionModal("MUTE 1H"))
+    
     @discord.ui.button(label="Exclure 24h", row=1)
     async def b6(self, i, b): await i.response.send_modal(GenericSanctionModal("EXCLURE 24H"))
+    
     @discord.ui.button(label="Kick", style=discord.ButtonStyle.danger, row=2)
     async def b7(self, i, b): await i.response.send_modal(GenericSanctionModal("KICK"))
+    
     @discord.ui.button(label="Ban", style=discord.ButtonStyle.danger, row=2)
     async def b8(self, i, b): await i.response.send_modal(GenericSanctionModal("BAN"))
+    
     @discord.ui.button(label="Casier", row=3)
     async def b9(self, i, b):
         class CM(discord.ui.Modal, title="Casier"):
@@ -251,6 +257,7 @@ class SanctionPanel(discord.ui.View):
                 t = "\n".join([f"**#{idx+1}** {x['type']}: {x.get('reason', x.get('raison',''))}" for idx, x in enumerate(d)]) or "Vide."
                 await it.response.send_message(f"Casier <@{self.u.value}> :\n{t}", ephemeral=True)
         await i.response.send_modal(CM())
+
     @discord.ui.button(label="Suppr Sanction", style=discord.ButtonStyle.danger, row=3)
     async def b10(self, i, b):
         class DM(discord.ui.Modal, title="Suppr"):
@@ -261,6 +268,7 @@ class SanctionPanel(discord.ui.View):
                 if uid in db and 0 <= index < len(db[uid]):
                     db[uid].pop(index); save_db("sanctions", db); await it.response.send_message("Fait !", ephemeral=True)
         await i.response.send_modal(DM())
+    
     @discord.ui.button(label="Retour", style=discord.ButtonStyle.grey, row=4)
     async def back(self, i, b): await i.response.edit_message(content="🛠 Admin", view=MainPanel())
 
