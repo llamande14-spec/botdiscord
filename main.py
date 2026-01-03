@@ -9,7 +9,6 @@ from keep_alive import keep_alive
 
 # --- CONFIGURATION ---
 TOKEN = os.environ.get("DISCORD_TOKEN")
-# Correction de l'espace insécable potentiel à la fin de l'ID
 MY_ID = 697919761312383057
 CHAN_FICHE_RECAP = 1433793778111484035
 CHAN_LOGS = 1439697621156495543
@@ -40,38 +39,7 @@ def sort_secteurs(secteur_key):
     if s == "2B": return -1
     return int(s) if s.isdigit() else 999
 
-# --- SYSTÈME DE RÉPERTOIRE À PAGES ---
-class RepertoirePaginator(discord.ui.View):
-    def __init__(self, pages):
-        super().__init__(timeout=None)
-        self.pages = pages
-        self.current_page = 0
-
-    async def update_view(self, interaction):
-        embed = discord.Embed(title="📖 RÉPERTOIRE DES SECTEURS", description=self.pages[self.current_page], color=discord.Color.blue())
-        embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
-        await interaction.response.edit_message(embed=embed, view=self)
-
-    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.grey)
-    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = (self.current_page - 1) % len(self.pages)
-        await self.update_view(interaction)
-
-    @discord.ui.button(label="➡️ Suivant", style=discord.ButtonStyle.grey)
-    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
-        self.current_page = (self.current_page + 1) % len(self.pages)
-        await self.update_view(interaction)
-
-    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.danger)
-    async def public(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.channel.send(f"📖 **Répertoire Public (Page {self.current_page + 1})** :\n{self.pages[self.current_page]}")
-        await interaction.response.defer()
-
-    @discord.ui.button(label="Retour", style=discord.ButtonStyle.secondary)
-    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
-        await interaction.response.edit_message(content="📂 **Secteurs**", embed=None, view=SecteurPanel())
-
-# --- MODALS ---
+# --- MODALS DE BIENVENUE ---
 class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
     pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Matthieu-bo4")
     secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 29, 2A", min_length=1, max_length=2)
@@ -109,14 +77,48 @@ class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
             await recap_chan.send(embed=embed, view=AcceptView())
         await interaction.response.send_message("Merci ! Ta fiche a été envoyée au staff.", ephemeral=True)
 
+# --- SYSTÈME DE RÉPERTOIRE À PAGES ---
+class RepertoirePaginator(discord.ui.View):
+    def __init__(self, pages):
+        super().__init__(timeout=None)
+        self.pages = pages
+        self.current_page = 0
+
+    async def update_view(self, interaction):
+        embed = discord.Embed(title="📖 RÉPERTOIRE DES SECTEURS", description=self.pages[self.current_page], color=discord.Color.blue())
+        embed.set_footer(text=f"Page {self.current_page + 1}/{len(self.pages)}")
+        await interaction.response.edit_message(embed=embed, view=self)
+
+    @discord.ui.button(label="⬅️ Précédent", style=discord.ButtonStyle.grey)
+    async def prev(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = (self.current_page - 1) % len(self.pages)
+        await self.update_view(interaction)
+
+    @discord.ui.button(label="➡️ Suivant", style=discord.ButtonStyle.grey)
+    async def next(self, interaction: discord.Interaction, button: discord.ui.Button):
+        self.current_page = (self.current_page + 1) % len(self.pages)
+        await self.update_view(interaction)
+
+    @discord.ui.button(label="Rendre Public", style=discord.ButtonStyle.danger)
+    async def public(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.channel.send(f"📖 **Répertoire Public (Page {self.current_page + 1})** :\n{self.pages[self.current_page]}")
+        await interaction.response.defer()
+
+    @discord.ui.button(label="Retour", style=discord.ButtonStyle.secondary)
+    async def back(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.edit_message(content="📂 **Secteurs**", embed=None, view=SecteurPanel())
+
+# --- MODALS SANCTION (CORRIGÉ) ---
 class GenericSanctionModal(discord.ui.Modal):
     def __init__(self, action):
-        # Sécurité : On coupe le titre si trop long (max 45 chars pour Discord)
-        super().__init__(title=f"Sanction : {action}"[:45])
+        super().__init__(title=f"Sanction : {action}")
         self.action = action
-        # Labels courts et précis pour éviter l'erreur 400
         self.user_id = discord.ui.TextInput(label="ID du Membre", min_length=15, max_length=20)
-        self.reason = discord.ui.TextInput(label="Motif", style=discord.TextStyle.paragraph, max_length=1000)
+        self.reason = discord.ui.TextInput(label="Motif", style=discord.TextStyle.paragraph)
+        
+        # --- CORRECTION CRITIQUE : AJOUT DES ITEMS A LA VUE ---
+        self.add_item(self.user_id)
+        self.add_item(self.reason)
 
     async def on_submit(self, i: discord.Interaction):
         try:
@@ -137,13 +139,18 @@ class GenericSanctionModal(discord.ui.Modal):
                     embed_mp.add_field(name="Motif", value=self.reason.value)
                     await member.send(embed=embed_mp)
                 except Exception as e:
-                    print(f"Erreur modération (MP/Action) : {e}")
+                    print(f"Erreur modération : {e}")
 
             # Logs JSON
             db = load_db("sanctions")
             uid = str(target_id)
             if uid not in db: db[uid] = []
-            db[uid].append({"type": self.action, "reason": self.reason.value, "staff": str(i.user), "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")})
+            db[uid].append({
+                "type": self.action, 
+                "reason": self.reason.value, 
+                "staff": str(i.user), 
+                "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            })
             save_db("sanctions", db)
 
             # Logs Salon
@@ -176,21 +183,27 @@ class SecteurPanel(discord.ui.View):
     @discord.ui.button(label="Ajouter", style=discord.ButtonStyle.success)
     async def add(self, i, b):
         class AddM(discord.ui.Modal, title="Ajouter"):
-            u, s = discord.ui.TextInput(label="ID Member"), discord.ui.TextInput(label="Secteur")
+            u = discord.ui.TextInput(label="ID Member")
+            s = discord.ui.TextInput(label="Secteur")
             async def on_submit(self, it):
                 db = load_db("secteurs")
                 sec = self.s.value.upper().zfill(2) if self.s.value.isdigit() else self.s.value.upper()
                 if sec not in db: db[sec] = []
                 u_id = int(self.u.value)
                 if u_id not in db[sec]: db[sec].append(u_id)
+                self.add_item(self.u); self.add_item(self.s) # Correction
                 save_db("secteurs", db)
                 await it.response.send_message("Ajouté !", ephemeral=True)
-        await i.response.send_modal(AddM())
+        
+        modal = AddM()
+        modal.add_item(modal.u); modal.add_item(modal.s)
+        await i.response.send_modal(modal)
 
     @discord.ui.button(label="Retirer", style=discord.ButtonStyle.danger)
     async def rem(self, i, b):
         class RemM(discord.ui.Modal, title="Retirer"):
-            u, s = discord.ui.TextInput(label="ID Member"), discord.ui.TextInput(label="Secteur")
+            u = discord.ui.TextInput(label="ID Member")
+            s = discord.ui.TextInput(label="Secteur")
             async def on_submit(self, it):
                 db = load_db("secteurs")
                 sec = self.s.value.upper()
@@ -200,7 +213,10 @@ class SecteurPanel(discord.ui.View):
                     save_db("secteurs", db)
                     await it.response.send_message("Retiré !", ephemeral=True)
                 else: await it.response.send_message("Pas trouvé.", ephemeral=True)
-        await i.response.send_modal(RemM())
+        
+        modal = RemM()
+        modal.add_item(modal.u); modal.add_item(modal.s)
+        await i.response.send_modal(modal)
 
     @discord.ui.button(label="Voir Répertoire", style=discord.ButtonStyle.secondary)
     async def view_rep(self, i, b):
@@ -256,7 +272,9 @@ class SanctionPanel(discord.ui.View):
                 d = load_db("sanctions").get(str(self.u.value), [])
                 t = "\n".join([f"**#{idx+1}** {x['type']}: {x.get('reason', x.get('raison',''))}" for idx, x in enumerate(d)]) or "Vide."
                 await it.response.send_message(f"Casier <@{self.u.value}> :\n{t}", ephemeral=True)
-        await i.response.send_modal(CM())
+        
+        modal = CM(); modal.add_item(modal.u) # Correction ajout item
+        await i.response.send_modal(modal)
 
     @discord.ui.button(label="Suppr Sanction", style=discord.ButtonStyle.danger, row=3)
     async def b10(self, i, b):
@@ -267,7 +285,9 @@ class SanctionPanel(discord.ui.View):
                 uid, index = str(self.u.value), int(self.idx.value)-1
                 if uid in db and 0 <= index < len(db[uid]):
                     db[uid].pop(index); save_db("sanctions", db); await it.response.send_message("Fait !", ephemeral=True)
-        await i.response.send_modal(DM())
+        
+        modal = DM(); modal.add_item(modal.u); modal.add_item(modal.idx) # Correction ajout item
+        await i.response.send_modal(modal)
     
     @discord.ui.button(label="Retour", style=discord.ButtonStyle.grey, row=4)
     async def back(self, i, b): await i.response.edit_message(content="🛠 Admin", view=MainPanel())
@@ -315,15 +335,47 @@ async def renforts(ctx):
     if ctx.channel.id != CHAN_RENFORTS: return
     qs = ["☎️ Le motif de l'appel ?", "🔢 Numéro d'interventoin ?", "📍 Qu'elle Secteur ?", "🏠 L'adresse ?", "🚒 Qu'elle véhicules avez vous besoin ?"]
     ans = []
-    for q in qs:
-        m = await ctx.send(q)
+    
+    # Check fonction pour le message
+    def check(m):
+        return m.author == ctx.author and m.channel == ctx.channel
+
+    for i, q in enumerate(qs):
+        msg = await ctx.send(q)
         try:
-            r = await bot.wait_for("message", check=lambda msg: msg.author == ctx.author and msg.channel == ctx.channel, timeout=60)
-            ans.append(r.content); await m.delete(); await r.delete()
+            resp = await bot.wait_for("message", check=check, timeout=60)
+            
+            # --- VERIFICATION SPECIFIQUE SECTEUR (Index 2) ---
+            if i == 2:
+                s_val = resp.content.upper().zfill(2) if resp.content.isdigit() else resp.content.upper()
+                if not is_valid_secteur(s_val):
+                    await msg.delete(); await resp.delete()
+                    # 2ème Chance
+                    retry_msg = await ctx.send("Secteur invalide, donnez un nouveaux secteurs correcte (C'est les départements).")
+                    try:
+                        resp_retry = await bot.wait_for("message", check=check, timeout=60)
+                        s_val_retry = resp_retry.content.upper().zfill(2) if resp_retry.content.isdigit() else resp_retry.content.upper()
+                        
+                        if not is_valid_secteur(s_val_retry):
+                            await retry_msg.delete(); await resp_retry.delete()
+                            await ctx.send("2ème secteurs invalide, commande annulée.", delete_after=5)
+                            return # Annulation
+                        else:
+                            ans.append(resp_retry.content)
+                            await retry_msg.delete(); await resp_retry.delete()
+                    except: return
+                else:
+                    ans.append(resp.content)
+                    await msg.delete(); await resp.delete()
+            else:
+                ans.append(resp.content)
+                await msg.delete(); await resp.delete()
         except: return
+
     sec = ans[2].upper().zfill(2) if ans[2].isdigit() else ans[2].upper()
     db = load_db("secteurs")
     mentions = [f"<@{uid}>" for uid in db.get(sec, [])]
+    
     embed = discord.Embed(title="🚨 ALERTE RENFORTS", color=0xed4245)
     embed.add_field(name="👤 Demandeur", value=ctx.author.mention)
     embed.add_field(name="📍 Secteur", value=sec)
@@ -332,6 +384,7 @@ async def renforts(ctx):
     embed.add_field(name="🏠 Adresse", value=ans[3], inline=False)
     embed.add_field(name="🚒 Besoin", value=ans[4], inline=False)
     embed.add_field(name="👥 En route", value="...")
+    
     class Act(discord.ui.View):
         def __init__(self, c):
             super().__init__(timeout=None)
@@ -345,6 +398,7 @@ async def renforts(ctx):
         @discord.ui.button(label="🚫 Fin de besoin", style=discord.ButtonStyle.secondary)
         async def end(self, it, b):
             if it.user == self.c or it.user.guild_permissions.administrator: await it.message.delete()
+    
     await ctx.send(content=" ".join(mentions) if mentions else "Aucun membre.", embed=embed, view=Act(ctx.author))
 
 keep_alive()
