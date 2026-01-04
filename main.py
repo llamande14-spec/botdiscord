@@ -1,10 +1,9 @@
 import discord
-from discord.ext import commands
+from discord.ext import commands, tasks
 import json
 import os
 import datetime
 import asyncio
-from discord.ext import tasks
 from keep_alive import keep_alive
 
 # --- CONFIGURATION ---
@@ -28,8 +27,13 @@ def load_db(name):
 def save_db(name, data):
     with open(f"{name}.json", 'w') as f: json.dump(data, f, indent=4)
 
+def format_secteur(s):
+    """Nettoie et formate un secteur (ex: '1' -> '01', '2a' -> '2A')"""
+    s = s.strip()
+    return s.upper().zfill(2) if s.isdigit() else s.upper()
+
 def is_valid_secteur(s):
-    s = str(s).upper().zfill(2) if str(s).isdigit() else str(s).upper()
+    s = format_secteur(s)
     valid_list = ["2A", "2B"] + [str(i).zfill(2) for i in range(1, 99)]
     return s in valid_list
 
@@ -72,43 +76,123 @@ class RepertoirePaginator(discord.ui.View):
 
 # --- MODALS (Formulaires) ---
 
+# 1. QUESTIONNAIRE DE BIENVENUE (Multi-Secteurs)
 class WelcomeModal(discord.ui.Modal, title="Questionnaire de Bienvenue"):
     pseudo = discord.ui.TextInput(label="Ton pseudo AS", placeholder="Ex: Matthieu-bo4")
-    secteur = discord.ui.TextInput(label="Quel est ton secteurs ?", placeholder="Ex: 29, 2A", min_length=1, max_length=2)
-    motivations = discord.ui.TextInput(label="T'es motivations ?", style=discord.TextStyle.paragraph)
-    autres_jeux = discord.ui.TextInput(label="Joue tu à d'autres jeux ?", required=False)
+    secteur = discord.ui.TextInput(label="Tes secteurs ?", placeholder="Ex: 56, 27, 2A (séparés par virgule)")
+    motivations = discord.ui.TextInput(label="Tes motivations ?", style=discord.TextStyle.paragraph)
+    autres_jeux = discord.ui.TextInput(label="Joues-tu à d'autres jeux ?", required=False)
 
     async def on_submit(self, interaction: discord.Interaction):
-        sec = self.secteur.value.upper().zfill(2) if self.secteur.value.isdigit() else self.secteur.value.upper()
-        if not is_valid_secteur(sec):
-            return await interaction.response.send_message("Secteur invalide. Recommencez via !msgmp", ephemeral=True)
+        # Découpage et validation des secteurs (ex: "56, 27")
+        raw_secteurs = self.secteur.value.replace(',', ' ').split()
+        valid_secs = []
+        invalid_secs = []
+
+        for s in raw_secteurs:
+            formatted = format_secteur(s)
+            if is_valid_secteur(formatted):
+                valid_secs.append(formatted)
+            else:
+                invalid_secs.append(s)
+
+        if not valid_secs:
+            return await interaction.response.send_message("❌ Aucun secteur valide (ex: 56, 29, 2A). Recommence !", ephemeral=True)
+        
+        secteurs_str = ", ".join(valid_secs)
         
         embed = discord.Embed(title="📝 Nouvelle Fiche de Bienvenue", color=discord.Color.blue())
         embed.add_field(name="Utilisateur", value=interaction.user.mention)
         embed.add_field(name="Pseudo AS", value=self.pseudo.value)
-        embed.add_field(name="Secteur souhaité", value=sec)
+        embed.add_field(name="Secteurs souhaités", value=secteurs_str)
+        if invalid_secs:
+            embed.add_field(name="⚠️ Invalides ignorés", value=", ".join(invalid_secs))
         embed.add_field(name="Motivations", value=self.motivations.value, inline=False)
         embed.add_field(name="Autres jeux", value=self.autres_jeux.value or "Aucun")
 
         class AcceptView(discord.ui.View):
-            @discord.ui.button(label="Accepter le secteurs", style=discord.ButtonStyle.success)
+            @discord.ui.button(label=f"Accepter ({secteurs_str})", style=discord.ButtonStyle.success)
             async def accept(self, inter, btn):
                 db = load_db("secteurs")
-                if sec not in db: db[sec] = []
-                if interaction.user.id not in db[sec]: db[sec].append(interaction.user.id)
+                added = []
+                for sec in valid_secs:
+                    if sec not in db: db[sec] = []
+                    if interaction.user.id not in db[sec]: 
+                        db[sec].append(interaction.user.id)
+                        added.append(sec)
+                
                 save_db("secteurs", db)
                 
                 log_chan = bot.get_channel(CHAN_LOGS)
                 if log_chan:
-                    await log_chan.send(f"✅ **Secteur validé** : {interaction.user.mention} assigné au **{sec}** par {inter.user.mention}")
-                await inter.response.send_message(f"Secteur {sec} enregistré !", ephemeral=True)
+                    await log_chan.send(f"✅ **Secteurs validés** : {interaction.user.mention} assigné à **{', '.join(added)}** par {inter.user.mention}")
+                
+                await inter.response.send_message(f"Secteurs {', '.join(added)} enregistrés !", ephemeral=True)
                 self.stop()
+                btn.disabled = True
+                await inter.message.edit(view=self)
 
         recap_chan = bot.get_channel(CHAN_FICHE_RECAP)
         if recap_chan:
             await recap_chan.send(embed=embed, view=AcceptView())
         await interaction.response.send_message("Merci ! Ta fiche a été envoyée au staff.", ephemeral=True)
 
+# 2. AJOUTER UN SECTEUR (Admin - Corrigé pour éviter le crash)
+class AddSectorModal(discord.ui.Modal, title="Ajouter un Secteur (Admin)"):
+    u_id = discord.ui.TextInput(label="ID Membre")
+    secteur = discord.ui.TextInput(label="Secteur(s) (ex: 56, 2A)")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            target_id = int(self.u_id.value)
+            raw_secteurs = self.secteur.value.replace(',', ' ').split()
+            db = load_db("secteurs")
+            added = []
+
+            for s in raw_secteurs:
+                sec = format_secteur(s)
+                if is_valid_secteur(sec):
+                    if sec not in db: db[sec] = []
+                    if target_id not in db[sec]:
+                        db[sec].append(target_id)
+                        added.append(sec)
+            
+            save_db("secteurs", db)
+            if added:
+                await interaction.response.send_message(f"✅ Ajouté <@{target_id}> aux secteurs : {', '.join(added)}", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Aucun secteur valide ou membre déjà présent.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ L'ID Membre doit être un nombre.", ephemeral=True)
+
+# 3. RETIRER UN MEMBRE (Admin - Corrigé)
+class RemoveSectorModal(discord.ui.Modal, title="Retirer un Membre"):
+    u_id = discord.ui.TextInput(label="ID Membre")
+
+    async def on_submit(self, interaction: discord.Interaction):
+        try:
+            target_id = int(self.u_id.value)
+            db = load_db("secteurs")
+            removed_from = []
+            
+            # On cherche l'ID dans TOUS les secteurs pour le supprimer partout
+            keys_to_check = list(db.keys())
+            for sec in keys_to_check:
+                if target_id in db[sec]:
+                    db[sec].remove(target_id)
+                    removed_from.append(sec)
+                    if not db[sec]: del db[sec] # Supprime la clé si vide
+
+            save_db("secteurs", db)
+            
+            if removed_from:
+                await interaction.response.send_message(f"✅ <@{target_id}> retiré de : {', '.join(removed_from)}", ephemeral=True)
+            else:
+                await interaction.response.send_message("❌ Ce membre n'était dans aucun secteur.", ephemeral=True)
+        except ValueError:
+            await interaction.response.send_message("❌ ID Invalide.", ephemeral=True)
+
+# 4. MODALS SANCTIONS
 class GenericSanctionModal(discord.ui.Modal):
     def __init__(self, action):
         super().__init__(title=f"Sanction : {action}"[:45])
@@ -129,6 +213,7 @@ class GenericSanctionModal(discord.ui.Modal):
                         await member.timeout(discord.utils.utcnow() + datetime.timedelta(minutes=mins), reason=self.reason.value)
                     elif self.action == "KICK": await member.kick(reason=self.reason.value)
                     elif self.action == "BAN": await member.ban(reason=self.reason.value)
+                    
                     embed_mp = discord.Embed(title=f"⚠️ Sanction reçue : {self.action}", color=discord.Color.red())
                     embed_mp.add_field(name="Motif", value=self.reason.value)
                     await member.send(embed=embed_mp)
@@ -152,8 +237,6 @@ class GenericSanctionModal(discord.ui.Modal):
             await i.response.send_message(f"✅ Sanction {self.action} enregistrée.", ephemeral=True)
         except Exception as e: await i.response.send_message(f"Erreur : {e}", ephemeral=True)
 
-# --- NOUVEAUX MODALS CORRIGÉS POUR LE CASIER ---
-
 class CasierModal(discord.ui.Modal):
     def __init__(self):
         super().__init__(title="Consulter le Casier")
@@ -164,7 +247,6 @@ class CasierModal(discord.ui.Modal):
         try:
             uid = str(self.user_id.value)
             d = load_db("sanctions").get(uid, [])
-            # Gestion compatible ancien/nouveau format
             t = "\n".join([f"**#{idx+1}** {x['type']}: {x.get('reason', x.get('raison','Sans motif'))}" for idx, x in enumerate(d)]) or "Casier vide."
             await i.response.send_message(f"📂 **Casier <@{uid}>** :\n{t}", ephemeral=True)
         except Exception as e: await i.response.send_message(f"Erreur : {e}", ephemeral=True)
@@ -194,7 +276,7 @@ class DeleteSanctionModal(discord.ui.Modal):
         except Exception as e:
             await i.response.send_message(f"Erreur : {e}", ephemeral=True)
 
-# --- PANELS ---
+# --- PANELS (Boutons) ---
 class MainPanel(discord.ui.View):
     def __init__(self): super().__init__(timeout=None)
     @discord.ui.button(label="Secteurs", style=discord.ButtonStyle.primary, row=0)
@@ -208,43 +290,15 @@ class MainPanel(discord.ui.View):
         await i.response.send_message("Envoyé en MP !", ephemeral=True)
 
 class SecteurPanel(discord.ui.View):
-    @discord.ui.button(label="Ajouter", style=discord.ButtonStyle.success)
+    # BOUTON AJOUTER (Appelle le Modal Global pour éviter le crash)
+    @discord.ui.button(label="Ajouter (Admin)", style=discord.ButtonStyle.success)
     async def add(self, i, b):
-        class AddM(discord.ui.Modal, title="Ajouter"):
-            u = discord.ui.TextInput(label="ID Member")
-            s = discord.ui.TextInput(label="Secteur")
-            def __init__(self):
-                super().__init__()
-                self.add_item(self.u); self.add_item(self.s)
-            async def on_submit(self, it):
-                db = load_db("secteurs")
-                sec = self.s.value.upper().zfill(2) if self.s.value.isdigit() else self.s.value.upper()
-                if sec not in db: db[sec] = []
-                u_id = int(self.u.value)
-                if u_id not in db[sec]: db[sec].append(u_id)
-                save_db("secteurs", db)
-                await it.response.send_message("Ajouté !", ephemeral=True)
-        await i.response.send_modal(AddM())
+        await i.response.send_modal(AddSectorModal())
 
-    @discord.ui.button(label="Retirer", style=discord.ButtonStyle.danger)
+    # BOUTON RETIRER (Appelle le Modal Global RemoveSectorModal)
+    @discord.ui.button(label="Retirer (Admin)", style=discord.ButtonStyle.danger)
     async def rem(self, i, b):
-        class RemM(discord.ui.Modal, title="Retirer"):
-            u = discord.ui.TextInput(label="ID Member")
-            def __init__(self):
-                super().__init__()
-                self.add_item(self.u)
-            async def on_submit(self, it):
-                db = load_db("secteurs")
-                found = False
-                for sec, members in list(db.items()):
-                    if int(self.u.value) in members:
-                        members.remove(int(self.u.value))
-                        if not members: del db[sec]
-                        found = True
-                save_db("secteurs", db)
-                if found: await it.response.send_message("Retiré !", ephemeral=True)
-                else: await it.response.send_message("Pas trouvé.", ephemeral=True)
-        await i.response.send_modal(RemM())
+        await i.response.send_modal(RemoveSectorModal())
 
     @discord.ui.button(label="Voir Répertoire", style=discord.ButtonStyle.secondary)
     async def view_rep(self, i, b):
@@ -257,7 +311,8 @@ class SecteurPanel(discord.ui.View):
             if len(current_page_txt) + len(line) > 1000:
                 pages.append(current_page_txt); current_page_txt = line
             else: current_page_txt += line
-        pages.append(current_page_txt)
+        if current_page_txt: pages.append(current_page_txt)
+        
         embed = discord.Embed(title="📖 RÉPERTOIRE", description=pages[0], color=discord.Color.blue())
         embed.set_footer(text=f"Page 1/{len(pages)}")
         await i.response.edit_message(content=None, embed=embed, view=RepertoirePaginator(pages))
@@ -284,14 +339,10 @@ class SanctionPanel(discord.ui.View):
     @discord.ui.button(label="Ban", style=discord.ButtonStyle.danger, row=2)
     async def b8(self, i, b): await i.response.send_modal(GenericSanctionModal("BAN"))
     
-    # --- CORRECTION DES BOUTONS CASIER ET SUPPRESSION ---
     @discord.ui.button(label="Casier", row=3)
-    async def b9(self, i, b):
-        await i.response.send_modal(CasierModal())
-
+    async def b9(self, i, b): await i.response.send_modal(CasierModal())
     @discord.ui.button(label="Suppr Sanction", style=discord.ButtonStyle.danger, row=3)
-    async def b10(self, i, b):
-        await i.response.send_modal(DeleteSanctionModal())
+    async def b10(self, i, b): await i.response.send_modal(DeleteSanctionModal())
     
     @discord.ui.button(label="Retour", style=discord.ButtonStyle.grey, row=4)
     async def back(self, i, b): await i.response.edit_message(content="🛠 Admin", view=MainPanel())
@@ -301,6 +352,7 @@ class SanctionPanel(discord.ui.View):
 async def on_ready():
     if not auto_backup.is_running(): auto_backup.start()
     u = await bot.fetch_user(MY_ID)
+    print(f"✅ Bot connecté en tant que {bot.user}")
     if u: await u.send("🚀 Démarrage bot.", files=[discord.File(f) for f in ["secteurs.json", "sanctions.json"] if os.path.exists(f)])
     sl = ["Créateur : louis_lmd", "Gère les secteurs"]
     while True:
@@ -311,21 +363,30 @@ async def auto_backup():
     u = await bot.fetch_user(MY_ID)
     if u: await u.send("📦 Backup 24h.", files=[discord.File(f) for f in ["secteurs.json", "sanctions.json"] if os.path.exists(f)])
 
+class StartWelcome(discord.ui.View):
+    def __init__(self):
+        super().__init__(timeout=None)
+    
+    @discord.ui.button(label="Démarrer le questionnaire", style=discord.ButtonStyle.green, custom_id="start_welcome_btn")
+    async def go(self, i, b): 
+        await i.response.send_modal(WelcomeModal())
+
 @bot.event
 async def on_member_join(member):
-    class Start(discord.ui.View):
-        @discord.ui.button(label="Démarrer le questionnaire", style=discord.ButtonStyle.green)
-        async def go(self, i, b): await i.response.send_modal(WelcomeModal())
-    try: await member.send(f"Bienvenue sur {member.guild.name} ! Merci de remplir le questionnaire :", view=Start())
-    except: pass
+    print(f"📥 Nouveau membre détecté : {member.name} ({member.id})")
+    try: 
+        await member.send(f"Bienvenue sur {member.guild.name} ! Merci de remplir le questionnaire pour tes secteurs :", view=StartWelcome())
+        print(f"✅ MP envoyé à {member.name}")
+    except discord.Forbidden: 
+        print(f"❌ Impossible d'envoyer un MP à {member.name} (MP fermés).")
+    except Exception as e:
+        print(f"❌ Erreur lors de l'envoi du MP : {e}")
 
+# COMMANDE !msgmp (BIEN CONSERVÉE !)
 @bot.command()
 @commands.has_permissions(administrator=True)
 async def msgmp(ctx, member: discord.Member):
-    class Start(discord.ui.View):
-        @discord.ui.button(label="Démarrer le questionnaire", style=discord.ButtonStyle.green)
-        async def go(self, i, b): await i.response.send_modal(WelcomeModal())
-    await member.send("Lancement manuel du questionnaire de bienvenue :", view=Start())
+    await member.send("Lancement manuel du questionnaire de bienvenue :", view=StartWelcome())
     await ctx.send(f"Questionnaire envoyé à {member.mention}")
 
 @bot.command()
@@ -335,7 +396,7 @@ async def panel(ctx): await ctx.send("🛠 **Panel Administration**", view=MainP
 @bot.command()
 async def renforts(ctx):
     if ctx.channel.id != CHAN_RENFORTS: return
-    qs = ["☎️ Le motif de l'appel ?", "🔢 Numéro d'interventoin ?", "📍 Qu'elle Secteur ?", "🏠 L'adresse ?", "🚒 Qu'elle véhicules avez vous besoin ?"]
+    qs = ["☎️ Le motif de l'appel ?", "🔢 Numéro d'intervention ?", "📍 Quel Secteur (ex: 56) ?", "🏠 L'adresse ?", "🚒 Quels véhicules avez-vous besoin ?"]
     ans = []
     def check(m): return m.author == ctx.author and m.channel == ctx.channel
 
@@ -343,23 +404,23 @@ async def renforts(ctx):
         msg = await ctx.send(q)
         try:
             resp = await bot.wait_for("message", check=check, timeout=60)
-            if i == 2: # Secteur check
-                s_val = resp.content.upper().zfill(2) if resp.content.isdigit() else resp.content.upper()
+            if i == 2: # Check Secteur
+                s_val = format_secteur(resp.content)
                 if not is_valid_secteur(s_val):
                     await msg.delete(); await resp.delete()
-                    retry_msg = await ctx.send("Secteur invalide, donnez un nouveaux secteurs correcte (C'est les départements).")
+                    retry_msg = await ctx.send("Secteur invalide (ex: 56, 2A). Réessayez :")
                     try:
                         resp_retry = await bot.wait_for("message", check=check, timeout=60)
-                        s_val_retry = resp_retry.content.upper().zfill(2) if resp_retry.content.isdigit() else resp_retry.content.upper()
+                        s_val_retry = format_secteur(resp_retry.content)
                         if not is_valid_secteur(s_val_retry):
-                            await retry_msg.delete(); await resp_retry.delete(); await ctx.send("2ème secteurs invalide, commande annulée.", delete_after=5); return
-                        else: ans.append(resp_retry.content); await retry_msg.delete(); await resp_retry.delete()
+                            await retry_msg.delete(); await resp_retry.delete(); await ctx.send("Annulé.", delete_after=5); return
+                        else: ans.append(s_val_retry); await retry_msg.delete(); await resp_retry.delete()
                     except: return
-                else: ans.append(resp.content); await msg.delete(); await resp.delete()
+                else: ans.append(s_val); await msg.delete(); await resp.delete()
             else: ans.append(resp.content); await msg.delete(); await resp.delete()
         except: return
 
-    sec = ans[2].upper().zfill(2) if ans[2].isdigit() else ans[2].upper()
+    sec = ans[2]
     db = load_db("secteurs")
     mentions = [f"<@{uid}>" for uid in db.get(sec, [])]
     embed = discord.Embed(title="🚨 ALERTE RENFORTS", color=0xed4245)
@@ -373,7 +434,7 @@ async def renforts(ctx):
     
     class Act(discord.ui.View):
         def __init__(self, c): super().__init__(timeout=None); self.c, self.r = c, []
-        @discord.ui.button(label="🚑 Je prend le renfort", style=discord.ButtonStyle.blurple)
+        @discord.ui.button(label="🚑 Je prends le renfort", style=discord.ButtonStyle.blurple)
         async def take(self, it, b):
             if it.user.mention not in self.r:
                 self.r.append(it.user.mention)
@@ -383,7 +444,7 @@ async def renforts(ctx):
         async def end(self, it, b):
             if it.user == self.c or it.user.guild_permissions.administrator: await it.message.delete()
     
-    await ctx.send(content=" ".join(mentions) if mentions else "Aucun membre.", embed=embed, view=Act(ctx.author))
+    await ctx.send(content=" ".join(mentions) if mentions else "Aucun membre dispo.", embed=embed, view=Act(ctx.author))
 
 keep_alive()
 bot.run(TOKEN)
