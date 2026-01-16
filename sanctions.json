@@ -2,9 +2,33 @@
     "1389249511972409490": [
         {
             "type": "AVERTISSEMENT",
-            "raison": "Après un rappel hier, David n’a pas tenu compte du rappel à 2 reprises quelques heures plus tard : écriture dans un tchat malgre avertissement + embrouille en vocal.",
+            "raison": "Apr\u00e8s un rappel hier, David n\u2019a pas tenu compte du rappel \u00e0 2 reprises quelques heures plus tard : \u00e9criture dans un tchat malgre avertissement + embrouille en vocal.",
             "date": "28/12/2025",
             "par": "Louis_lmd"
+        }
+    ],
+    "697919761312383057": [
+        {
+            "type": "MUTE 10M",
+            "reason": "Vas apprendre la politesse",
+            "staff": "robin_mcfly",
+            "date": "11/01/2026 21:45"
+        }
+    ],
+    "1044287495703101520": [
+        {
+            "type": "AVERTISSEMENT",
+            "reason": "Propos d\u00e9plac\u00e9s\nRefus CDS",
+            "staff": "robin_mcfly",
+            "date": "12/01/2026 12:41"
+        }
+    ],
+    "727225481769910293": [
+        {
+            "type": "SOMMATION",
+            "reason": "TEST CDS INC 2 16/01/2026",
+            "staff": "robin_mcfly",
+            "date": "16/01/2026 17:24"
         }
     ]
 }
