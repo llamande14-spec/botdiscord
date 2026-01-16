@@ -237,6 +237,46 @@ class GenericSanctionModal(discord.ui.Modal):
             await i.response.send_message(f"✅ Sanction {self.action} enregistrée.", ephemeral=True)
         except Exception as e: await i.response.send_message(f"Erreur : {e}", ephemeral=True)
 
+# 5. AJOUT NOTE STAFF (NOUVEAU)
+class AddNoteModal(discord.ui.Modal):
+    def __init__(self):
+        super().__init__(title="Ajouter une Note (Staff)")
+        self.user_id = discord.ui.TextInput(label="ID du Membre", min_length=15, max_length=20)
+        self.content = discord.ui.TextInput(label="Contenu de la note", style=discord.TextStyle.paragraph, placeholder="Info interne (ne sera pas envoyée au membre)")
+        self.add_item(self.user_id)
+        self.add_item(self.content)
+
+    async def on_submit(self, i: discord.Interaction):
+        try:
+            target_id = int(self.user_id.value)
+            # PAS D'ENVOI DE MP
+            db = load_db("sanctions")
+            uid = str(target_id)
+            if uid not in db: db[uid] = []
+            
+            # On utilise un type spécial "NOTE STAFF"
+            db[uid].append({
+                "type": "📝 NOTE STAFF", 
+                "reason": self.content.value, 
+                "staff": str(i.user), 
+                "date": datetime.datetime.now().strftime("%d/%m/%Y %H:%M")
+            })
+            save_db("sanctions", db)
+
+            log_chan = bot.get_channel(CHAN_LOGS)
+            if log_chan:
+                embed_log = discord.Embed(title="📝 Note Interne Ajoutée", color=discord.Color.gold())
+                embed_log.add_field(name="Cible", value=f"<@{target_id}>")
+                embed_log.add_field(name="Auteur", value=i.user.mention)
+                embed_log.add_field(name="Note", value=self.content.value)
+                await log_chan.send(embed=embed_log)
+
+            await i.response.send_message(f"✅ Note ajoutée au casier de <@{target_id}>.", ephemeral=True)
+        except ValueError:
+            await i.response.send_message("❌ ID Invalide.", ephemeral=True)
+        except Exception as e:
+            await i.response.send_message(f"Erreur : {e}", ephemeral=True)
+
 class CasierModal(discord.ui.Modal):
     def __init__(self):
         super().__init__(title="Consulter le Casier")
@@ -341,6 +381,8 @@ class SanctionPanel(discord.ui.View):
     
     @discord.ui.button(label="Casier", row=3)
     async def b9(self, i, b): await i.response.send_modal(CasierModal())
+    @discord.ui.button(label="Ajouter Note", style=discord.ButtonStyle.primary, row=3)
+    async def b_note(self, i, b): await i.response.send_modal(AddNoteModal())
     @discord.ui.button(label="Suppr Sanction", style=discord.ButtonStyle.danger, row=3)
     async def b10(self, i, b): await i.response.send_modal(DeleteSanctionModal())
     
