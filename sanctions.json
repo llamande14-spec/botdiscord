@@ -2,9 +2,57 @@
     "1389249511972409490": [
         {
             "type": "AVERTISSEMENT",
-            "raison": "Après un rappel hier, David n’a pas tenu compte du rappel à 2 reprises quelques heures plus tard : écriture dans un tchat malgre avertissement + embrouille en vocal.",
+            "raison": "Apr\u00e8s un rappel hier, David n\u2019a pas tenu compte du rappel \u00e0 2 reprises quelques heures plus tard : \u00e9criture dans un tchat malgre avertissement + embrouille en vocal.",
             "date": "28/12/2025",
             "par": "Louis_lmd"
         }
-    ]
-}
+    ],
+    "1044287495703101520": [
+        {
+            "type": "AVERTISSEMENT",
+            "reason": "12/01/2026\n\nPropos d\u00e9plac\u00e9\nRefus CDS",
+            "staff": "louis_lmd",
+            "date": "16/01/2026 22:15"
+        }
+    ],
+    "727225481769910293": [
+        {
+            "type": "\ud83d\udcdd NOTE STAFF",
+            "reason": "TEST CDS INC 2 16/01/2026",
+            "staff": "louis_lmd",
+            "date": "16/01/2026 22:16"
+        },
+        {
+            "type": "\ud83d\udcdd NOTE STAFF",
+            "reason": "Nomination Chef de Salle 18/01/2026",
+            "staff": "robin_mcfly",
+            "date": "18/01/2026 20:11"
+        }
+    ],
+    "1384981563045052466": [
+        {
+            "type": "KICK",
+            "reason": "A quitter le groupement + c\u2019est pas le pingouin le plus glissant de la banquise",
+            "staff": "matt.130602",
+            "date": "03/02/2026 16:09"
+
+        }
+    ];
+          "542824793003655178": [
+        {
+            "type": "KICK",
+            "reason": "A quitt\u00e9 le groupement",
+            "staff": "matt.130602",
+            "date": "05/02/2026 13:41"
+
+        }
+          ];
+    
+    "266625378985050112": [
+        {
+            "type": "\ud83d\udcdd NOTE STAFF",
+            "reason": "TEST Chef de salle le 17/01/2026 par Matthieu",
+            "staff": "robin_mcfly",
+            "date": "18/01/2026 13:42"
+        },
+        {
